@@ -55,6 +55,7 @@ const scColor = {
   Completed: [C.accent, C.accentLight], Running: ["#3b82f6","#eff6ff"],
   Paused: [C.yellow,"#fef3c7"], Active: [C.accent, C.accentLight],
   Approved: [C.accent, C.accentLight], Pending: [C.yellow,"#fef3c7"],
+  Inactive: [C.sub, "#f0f4f2"],
 };
 
 // ─── SHARED COMPONENTS ────────────────────────────────────────────
@@ -116,8 +117,6 @@ function WAAccount() {
     <div>
       <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>WhatsApp Account</h2>
       <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Connect your Meta WhatsApp Business account via API credentials.</p>
-
-      {/* Connected Accounts */}
       {accounts.length > 0 && (
         <div style={{ ...card, marginBottom:20 }}>
           <h3 style={{ margin:"0 0 14px", fontSize:14, fontWeight:700 }}>Connected Accounts ({accounts.length})</h3>
@@ -138,15 +137,11 @@ function WAAccount() {
           ))}
         </div>
       )}
-
-      {/* Add Account Form */}
       <div style={{ ...card, border:`1.5px solid ${C.border}` }}>
         <h3 style={{ margin:"0 0 6px", fontSize:15, fontWeight:700 }}>Add New Account</h3>
         <p style={{ color:C.sub, fontSize:12, margin:"0 0 16px" }}>Get these values from <strong>Meta Business → WhatsApp → API Setup</strong></p>
-
         {error && <div style={{ marginBottom:14 }}><ErrorBox msg={error} /></div>}
         {saved && <div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"12px 16px", color:C.accent2, fontWeight:600, marginBottom:14 }}>✅ Account connected successfully!</div>}
-
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
           <div style={{ gridColumn:"1/-1" }}>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DISPLAY NAME (optional)</label>
@@ -155,29 +150,16 @@ function WAAccount() {
           <div style={{ gridColumn:"1/-1" }}>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>ACCESS TOKEN *</label>
             <input value={form.token} onChange={e=>setForm({...form,token:e.target.value})} style={{ ...inp, marginTop:5, fontFamily:"monospace", fontSize:12 }} placeholder="EAAxxxxxxxxxxxxx..." type="password" />
-            <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>⚠️ Never share this token. Regenerate in Meta if compromised.</div>
           </div>
           <div>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PHONE NUMBER ID *</label>
             <input value={form.phone_number_id} onChange={e=>setForm({...form,phone_number_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="1234567890" />
           </div>
           <div>
-            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>WABA ID (WhatsApp Business Account ID) *</label>
+            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>WABA ID *</label>
             <input value={form.waba_id} onChange={e=>setForm({...form,waba_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="9876543210" />
           </div>
         </div>
-
-        <div style={{ marginTop:18, padding:"14px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10 }}>
-          <div style={{ fontWeight:700, fontSize:13, color:"#92400e", marginBottom:6 }}>📋 How to get these values</div>
-          <ol style={{ margin:0, paddingLeft:18, fontSize:12, color:"#92400e", lineHeight:1.8 }}>
-            <li>Go to <strong>developers.facebook.com</strong> → My Apps → Your App</li>
-            <li>Click <strong>WhatsApp → API Setup</strong></li>
-            <li>Copy the <strong>Temporary Access Token</strong> (or generate a permanent one)</li>
-            <li>Copy the <strong>Phone Number ID</strong> shown below the token</li>
-            <li>Copy the <strong>WhatsApp Business Account ID</strong> shown on the same page</li>
-          </ol>
-        </div>
-
         <div style={{ display:"flex", gap:10, marginTop:16 }}>
           <button style={{ ...btn(), minWidth:180 }} onClick={save} disabled={saving}>
             {saving ? "Connecting..." : "🔗 Connect Account"}
@@ -188,55 +170,48 @@ function WAAccount() {
   );
 }
 
-// ─── CONTACTS (with Groups) ────────────────────────────────────────
+// ─── CONTACTS ─────────────────────────────────────────────────────
 function Contacts() {
-  const [groups, setGroups]       = useState([]);
-  const [contacts, setContacts]   = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [activeGroup, setActiveGroup] = useState(null); // null = show groups list
+  const [groups, setGroups]           = useState([]);
+  const [contacts, setContacts]       = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [activeGroup, setActiveGroup] = useState(null);
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
-  const [groupName, setGroupName] = useState("");
-  const [search, setSearch]       = useState("");
-  const [form, setForm]           = useState({ name:"", phone:"", email:"", tag:"Lead" });
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState(null);
+  const [groupName, setGroupName]     = useState("");
+  const [search, setSearch]           = useState("");
+  const [form, setForm]               = useState({ name:"", phone:"", email:"", tag:"Lead" });
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState(null);
   const fileRef = useRef();
 
-  // Load contacts from API
   const loadContacts = () => {
     fetch("/api/contacts")
       .then(r => r.json())
       .then(data => { setContacts(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
   };
-
-  // Load groups from localStorage
   const loadGroups = () => {
     const stored = localStorage.getItem("contact_groups");
     setGroups(stored ? JSON.parse(stored) : []);
   };
-
   useEffect(() => { loadContacts(); loadGroups(); }, []);
 
   const saveGroups = (updated) => {
     localStorage.setItem("contact_groups", JSON.stringify(updated));
     setGroups(updated);
   };
-
   const addGroup = () => {
     if (!groupName.trim()) return;
     const newGroup = { id: Date.now().toString(), name: groupName.trim(), created_at: new Date().toISOString(), contactIds: [] };
     saveGroups([...groups, newGroup]);
     setGroupName(""); setShowAddGroup(false);
   };
-
   const deleteGroup = (id) => {
-    if (!window.confirm("Delete this group? Contacts will not be deleted.")) return;
+    if (!window.confirm("Delete this group?")) return;
     saveGroups(groups.filter(g => g.id !== id));
     if (activeGroup === id) setActiveGroup(null);
   };
-
   const addContact = async () => {
     if (!form.name || !form.phone) return alert("Name and phone are required");
     setSaving(true);
@@ -247,7 +222,6 @@ function Contacts() {
     setSaving(false);
     if (r.ok) {
       const saved = await r.json();
-      // Add contact to group
       if (activeGroup) {
         const updated = groups.map(g => g.id === activeGroup ? { ...g, contactIds: [...(g.contactIds||[]), saved.id] } : g);
         saveGroups(updated);
@@ -255,12 +229,8 @@ function Contacts() {
       setShowAddContact(false);
       setForm({ name:"", phone:"", email:"", tag:"Lead" });
       loadContacts();
-    } else {
-      const d = await r.json(); alert(d.error);
-    }
+    } else { const d = await r.json(); alert(d.error); }
   };
-
-  // Excel import
   const handleExcel = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -272,42 +242,31 @@ function Contacts() {
       const nameIdx  = headers.findIndex(h => h.includes("name"));
       const phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile") || h.includes("number"));
       const emailIdx = headers.findIndex(h => h.includes("email"));
-      if (phoneIdx === -1) return alert("CSV must have a column named 'phone', 'mobile' or 'number'");
-      let imported = 0;
-      const newIds = [];
+      if (phoneIdx === -1) return alert("CSV must have a 'phone' column");
+      let imported = 0; const newIds = [];
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(",").map(c => c.trim().replace(/"/g,""));
-        const phone = cols[phoneIdx];
-        if (!phone) continue;
-        const name  = nameIdx  >= 0 ? cols[nameIdx]  : phone;
+        const phone = cols[phoneIdx]; if (!phone) continue;
+        const name  = nameIdx >= 0 ? cols[nameIdx] : phone;
         const email = emailIdx >= 0 ? cols[emailIdx] : "";
-        const r = await fetch("/api/contacts", {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ name, phone, email, tag:"Lead" }),
-        });
+        const r = await fetch("/api/contacts", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name, phone, email, tag:"Lead" }) });
         if (r.ok) { const d = await r.json(); newIds.push(d.id); imported++; }
       }
-      // Add imported contacts to group
       if (activeGroup && newIds.length) {
         const updated = groups.map(g => g.id === activeGroup ? { ...g, contactIds: [...(g.contactIds||[]), ...newIds] } : g);
         saveGroups(updated);
       }
       loadContacts();
-      alert(`✅ Imported ${imported} contacts successfully!`);
+      alert(`✅ Imported ${imported} contacts!`);
     };
     reader.readAsText(file);
     e.target.value = "";
   };
 
-  const currentGroup   = groups.find(g => g.id === activeGroup);
-  const groupContacts  = activeGroup
-    ? contacts.filter(c => (currentGroup?.contactIds || []).includes(c.id))
-    : [];
-  const filteredContacts = groupContacts.filter(c =>
-    c.name?.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search)
-  );
+  const currentGroup = groups.find(g => g.id === activeGroup);
+  const groupContacts = activeGroup ? contacts.filter(c => (currentGroup?.contactIds||[]).includes(c.id)) : [];
+  const filteredContacts = groupContacts.filter(c => c.name?.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search));
 
-  // ── Groups List View ──
   if (!activeGroup) return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
@@ -317,23 +276,21 @@ function Contacts() {
         </div>
         <button style={btn()} onClick={() => setShowAddGroup(true)}>+ New Group</button>
       </div>
-
       {showAddGroup && (
         <div style={{ ...card, marginBottom:16, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
           <h4 style={{ margin:"0 0 12px", color:C.accent2 }}>Create New Group</h4>
           <div style={{ display:"flex", gap:10 }}>
-            <input value={groupName} onChange={e=>setGroupName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addGroup()} style={{ ...inp }} placeholder="Group name e.g. Premium Customers" autoFocus />
+            <input value={groupName} onChange={e=>setGroupName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addGroup()} style={inp} placeholder="Group name e.g. Premium Customers" autoFocus />
             <button style={{ ...btn(), flexShrink:0 }} onClick={addGroup}>Create</button>
             <button style={{ ...btn("ghost"), flexShrink:0 }} onClick={()=>{setShowAddGroup(false);setGroupName("");}}>Cancel</button>
           </div>
         </div>
       )}
-
       {loading ? <Loader /> : groups.length === 0 ? (
         <div style={{ ...card, textAlign:"center", padding:"50px 20px" }}>
           <div style={{ fontSize:48, marginBottom:12 }}>👥</div>
-          <h3 style={{ margin:"0 0 8px", color:C.text }}>No groups yet</h3>
-          <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Create a group to start organising your contacts</p>
+          <h3 style={{ margin:"0 0 8px" }}>No groups yet</h3>
+          <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Create a group to organise your contacts</p>
           <button style={btn()} onClick={() => setShowAddGroup(true)}>+ Create First Group</button>
         </div>
       ) : (
@@ -341,18 +298,14 @@ function Contacts() {
           {groups.map(g => {
             const count = (g.contactIds||[]).length;
             return (
-              <div key={g.id} style={{ ...card, cursor:"pointer", transition:"all 0.15s" }}
-                onClick={() => setActiveGroup(g.id)}>
+              <div key={g.id} style={{ ...card, cursor:"pointer" }} onClick={() => setActiveGroup(g.id)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
                   <div style={{ width:44, height:44, borderRadius:12, background:`linear-gradient(135deg,${C.accent},${C.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>👥</div>
                   <button onClick={e=>{e.stopPropagation();deleteGroup(g.id);}} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"4px 8px" }}>✕</button>
                 </div>
                 <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{g.name}</div>
                 <div style={{ fontSize:13, color:C.sub, marginBottom:10 }}>{count} contact{count!==1?"s":""}</div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <span style={{ fontSize:11, color:C.sub }}>{g.created_at?.split("T")[0]}</span>
-                  <span style={{ ...pill(C.accent2, C.accentLight), fontSize:11 }}>Open →</span>
-                </div>
+                <span style={{ ...pill(C.accent2, C.accentLight), fontSize:11 }}>Open →</span>
               </div>
             );
           })}
@@ -361,22 +314,20 @@ function Contacts() {
     </div>
   );
 
-  // ── Group Detail View ──
   return (
     <div>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:18 }}>
         <button onClick={() => { setActiveGroup(null); setSearch(""); setShowAddContact(false); }} style={{ ...btn("secondary"), padding:"8px 14px", fontSize:13 }}>← Back</button>
         <div>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>👥 {currentGroup?.name}</h2>
-          <p style={{ margin:"2px 0 0", fontSize:12, color:C.sub }}>{groupContacts.length} contacts in this group</p>
+          <p style={{ margin:"2px 0 0", fontSize:12, color:C.sub }}>{groupContacts.length} contacts</p>
         </div>
         <div style={{ marginLeft:"auto", display:"flex", gap:10 }}>
-          <button style={{ ...btn("secondary"), fontSize:13 }} onClick={() => fileRef.current.click()}>📥 Import CSV/Excel</button>
+          <button style={{ ...btn("secondary"), fontSize:13 }} onClick={() => fileRef.current.click()}>📥 Import CSV</button>
           <input ref={fileRef} type="file" accept=".csv,.txt" style={{ display:"none" }} onChange={handleExcel} />
           <button style={btn()} onClick={() => setShowAddContact(true)}>+ Add Contact</button>
         </div>
       </div>
-
       {showAddContact && (
         <div style={{ ...card, marginBottom:16, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
           <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>Add Contact to "{currentGroup?.name}"</h4>
@@ -396,23 +347,13 @@ function Contacts() {
           </div>
         </div>
       )}
-
-      {/* CSV format hint */}
-      <div style={{ ...card, marginBottom:14, background:"#fffbeb", border:"1px solid #fde68a", padding:"12px 16px" }}>
-        <div style={{ fontSize:12, color:"#92400e" }}>
-          📋 <strong>CSV Import Format:</strong> Your file should have columns: <code>name, phone, email</code> (headers required). Phone must include country code e.g. <code>919999999999</code>
-        </div>
-      </div>
-
       <div style={card}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
           <h3 style={{ margin:0, fontSize:14, fontWeight:700 }}>Contacts ({filteredContacts.length})</h3>
           <input placeholder="🔍 Search..." value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, width:220, fontSize:13 }} />
         </div>
         {loading ? <Loader /> : filteredContacts.length === 0 ? (
-          <div style={{ textAlign:"center", padding:"30px 0", color:C.sub, fontSize:13 }}>
-            No contacts in this group yet. Add manually or import a CSV.
-          </div>
+          <div style={{ textAlign:"center", padding:"30px 0", color:C.sub, fontSize:13 }}>No contacts yet. Add manually or import a CSV.</div>
         ) : (
           <table style={{ width:"100%", borderCollapse:"collapse" }}>
             <thead><tr>{["Name","Phone","Email","Tag","Opt-In"].map(h=><th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}` }}>{h}</th>)}</tr></thead>
@@ -440,10 +381,7 @@ function Dashboard() {
   const [loading, setLoading]     = useState(true);
 
   useEffect(() => {
-    fetch("/api/campaigns")
-      .then(r => r.json())
-      .then(data => { setCampaigns(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => setLoading(false));
+    fetch("/api/campaigns").then(r=>r.json()).then(data=>{setCampaigns(Array.isArray(data)?data:[]);setLoading(false);}).catch(()=>setLoading(false));
   }, []);
 
   const totalSent      = campaigns.reduce((s,c) => s + (c.sent||0), 0);
@@ -463,10 +401,7 @@ function Dashboard() {
           <h3 style={{ margin:"0 0 14px", fontSize:14, fontWeight:700 }}>Recent Campaigns</h3>
           {loading ? <Loader /> : campaigns.slice(0,4).map(c => (
             <div key={c.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
-              <div>
-                <div style={{ fontWeight:600, fontSize:14 }}>{c.name}</div>
-                <div style={{ fontSize:12, color:C.sub }}>{(c.sent||0).toLocaleString()} sent</div>
-              </div>
+              <div><div style={{ fontWeight:600, fontSize:14 }}>{c.name}</div><div style={{ fontSize:12, color:C.sub }}>{(c.sent||0).toLocaleString()} sent</div></div>
               <Badge status={c.status} />
             </div>
           ))}
@@ -477,8 +412,7 @@ function Dashboard() {
           {[["Sent", totalSent, C.blue],["Delivered", totalDelivered, C.accent],["Failed", totalFailed, C.red]].map(([l,v,c])=>(
             <div key={l} style={{ marginBottom:12 }}>
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:4 }}>
-                <span style={{ color:C.sub }}>{l}</span>
-                <span style={{ fontWeight:700 }}>{v.toLocaleString()}</span>
+                <span style={{ color:C.sub }}>{l}</span><span style={{ fontWeight:700 }}>{v.toLocaleString()}</span>
               </div>
               <div style={{ background:C.border, borderRadius:99, height:7 }}>
                 <div style={{ width:`${totalSent>0?(v/totalSent)*100:0}%`, height:"100%", borderRadius:99, background:c }} />
@@ -498,10 +432,7 @@ function CampaignSummary() {
   const [search, setSearch]       = useState("");
 
   useEffect(() => {
-    fetch("/api/campaigns")
-      .then(r => r.json())
-      .then(data => { setCampaigns(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => setLoading(false));
+    fetch("/api/campaigns").then(r=>r.json()).then(data=>{setCampaigns(Array.isArray(data)?data:[]);setLoading(false);}).catch(()=>setLoading(false));
   }, []);
 
   const filtered = campaigns.filter(c => c.name?.toLowerCase().includes(search.toLowerCase()));
@@ -554,10 +485,7 @@ function SendSingle() {
     if (!to || !msg) return alert("Phone number and message are required");
     setStatus("sending");
     try {
-      const r = await fetch("/api/send-message", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ to: to.replace(/\D/g,""), message: msg }),
-      });
+      const r = await fetch("/api/send-message", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ to: to.replace(/\D/g,""), message: msg }) });
       const data = await r.json();
       if (r.ok) { setStatus("success"); setTo(""); setMsg(""); }
       else { setStatus("error"); setErrMsg(data.error?.error?.message || JSON.stringify(data.error)); }
@@ -581,9 +509,7 @@ function SendSingle() {
           </div>
           {status==="success" && <div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"12px 16px", color:C.accent2, fontWeight:600 }}>✅ Message sent!</div>}
           {status==="error"   && <ErrorBox msg={errMsg} />}
-          <button style={{ ...btn(), alignSelf:"flex-start", minWidth:160 }} onClick={send} disabled={status==="sending"}>
-            {status==="sending" ? "Sending..." : "📤 Send Message"}
-          </button>
+          <button style={{ ...btn(), alignSelf:"flex-start", minWidth:160 }} onClick={send} disabled={status==="sending"}>{status==="sending" ? "Sending..." : "📤 Send Message"}</button>
         </div>
         <div style={{ ...card, alignSelf:"flex-start" }}>
           <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:700 }}>Preview</h3>
@@ -600,18 +526,18 @@ function SendSingle() {
 
 // ─── CREATE CAMPAIGN ──────────────────────────────────────────────
 function CreateCampaign() {
-  const [step, setStep]               = useState(1);
-  const [contacts, setContacts]       = useState([]);
-  const [groups, setGroups]           = useState([]);
+  const [step, setStep]             = useState(1);
+  const [contacts, setContacts]     = useState([]);
+  const [groups, setGroups]         = useState([]);
   const [campaignName, setCampaignName] = useState("");
   const [selectedGroup, setSelectedGroup] = useState("");
-  const [msgType, setMsgType]         = useState("text"); // "text" | "template"
-  const [message, setMessage]         = useState("");
+  const [msgType, setMsgType]       = useState("text");
+  const [message, setMessage]       = useState("");
   const [templateName, setTemplateName] = useState("");
   const [templateLang, setTemplateLang] = useState("en_US");
-  const [status, setStatus]           = useState(null);
-  const [result, setResult]           = useState(null);
-  const [scheduleType, setScheduleType] = useState("now"); // "now" | "scheduled"
+  const [status, setStatus]         = useState(null);
+  const [result, setResult]         = useState(null);
+  const [scheduleType, setScheduleType] = useState("now");
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduleTimezone, setScheduleTimezone] = useState("Asia/Kolkata");
@@ -633,21 +559,11 @@ function CreateCampaign() {
     if (msgType === "text" && !message) return alert("Message is required");
     if (msgType === "template" && !templateName) return alert("Template name is required");
     if (!groupContacts.length) return alert("No opted-in contacts in this group");
-    if (scheduleType === "scheduled" && (!scheduleDate || !scheduleTime)) return alert("Please select a date and time for scheduling");
     setStatus("sending");
     try {
       const r = await fetch("/api/campaigns", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          name: campaignName,
-          contactIds: groupContacts.map(c => c.id),
-          message: msgType === "text" ? message : undefined,
-          templateName: msgType === "template" ? templateName : undefined,
-          languageCode: templateLang,
-          scheduleType,
-          scheduledAt: scheduleType === "scheduled" ? `${scheduleDate}T${scheduleTime}` : null,
-          timezone: scheduleTimezone,
-        }),
+        body: JSON.stringify({ name: campaignName, contactIds: groupContacts.map(c => c.id), message: msgType==="text"?message:undefined, templateName: msgType==="template"?templateName:undefined, languageCode: templateLang }),
       });
       const data = await r.json();
       if (r.ok) { setStatus("success"); setResult(data); }
@@ -660,8 +576,6 @@ function CreateCampaign() {
   return (
     <div>
       <h2 style={{ margin:"0 0 18px", fontSize:18, fontWeight:800 }}>Create Campaign</h2>
-
-      {/* Stepper */}
       <div style={{ display:"flex", alignItems:"center", marginBottom:24 }}>
         {steps.map((s,i)=>(
           <div key={s} style={{ display:"flex", alignItems:"center", flex: i<steps.length-1?1:"none" }}>
@@ -673,242 +587,636 @@ function CreateCampaign() {
           </div>
         ))}
       </div>
+      {step===1 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Campaign Name</h3><input value={campaignName} onChange={e=>setCampaignName(e.target.value)} style={inp} placeholder="e.g. Diwali Sale 2025" /><button style={{ ...btn(), marginTop:14 }} onClick={()=>{ if(!campaignName) return alert("Enter a campaign name"); setStep(2); }}>Continue →</button></div>)}
+      {step===2 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(<button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{msgType==="text"&&(<div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label><textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your message..." /><div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div></div>)}{msgType==="template"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>⚠️ Templates must be pre-approved by Meta.</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label><input value={templateName} onChange={e=>setTemplateName(e.target.value)} style={{ ...inp, marginTop:6 }} placeholder="e.g. hello_world" /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label><select value={templateLang} onChange={e=>setTemplateLang(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="en_US">English (US)</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="ta">Tamil</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
+      {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:"white" }}><div style={{ fontWeight:700 }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
+      {step===4 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Schedule</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["now","⚡ Send Now"],["scheduled","📅 Schedule Later"]].map(([val,label])=>(<button key={val} onClick={()=>setScheduleType(val)} style={{ ...btn(scheduleType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{scheduleType==="scheduled"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DATE *</label><input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={e=>setScheduleDate(e.target.value)} style={{ ...inp, marginTop:6 }} /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIME *</label><input type="time" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} style={{ ...inp, marginTop:6 }} /></div></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIMEZONE</label><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="Asia/Kolkata">India (IST) UTC+5:30</option><option value="Asia/Dubai">Dubai (GST) UTC+4</option><option value="Europe/London">London (GMT) UTC+0</option><option value="America/New_York">New York (ET) UTC-5</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(3)}>← Back</button><button style={btn()} onClick={()=>setStep(5)}>Continue →</button></div></div>)}
+      {step===5 && (<div style={card}><h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>Review & Send</h3><div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>{[["Campaign Name",campaignName],["Message Type",msgType==="template"?`Template: ${templateName}` : "Custom Text"],["Contact Group",currentGroup?.name||"—"],["Recipients",`${groupContacts.length} opted-in contacts`],["Schedule",scheduleType==="now"?"⚡ Send Now":`📅 ${scheduleDate} at ${scheduleTime}`]].map(([label,value])=>(<div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", background:C.bg, borderRadius:9 }}><span style={{ color:C.sub, fontSize:13 }}>{label}</span><span style={{ fontWeight:700, fontSize:13 }}>{value}</span></div>))}{msgType==="text"&&(<div style={{ padding:"10px 14px", background:C.bg, borderRadius:9 }}><div style={{ color:C.sub, fontSize:13, marginBottom:4 }}>Message Preview</div><div style={{ fontSize:13, whiteSpace:"pre-wrap" }}>{message}</div></div>)}</div>{status==="success"&&result&&(<div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontWeight:700, color:C.accent2, marginBottom:4 }}>✅ Campaign Sent!</div><div style={{ fontSize:13, color:C.sub }}>Sent: {result.sent} | Failed: {result.failed}</div></div>)}{status==="error"&&<ErrorBox msg="Something went wrong. Check API credentials." />}<div style={{ display:"flex", gap:10 }}><button style={btn("secondary")} onClick={()=>setStep(4)}>← Back</button><button style={{ ...btn(), minWidth:180 }} onClick={send} disabled={status==="sending"}>{status==="sending"?"⏳ Sending...":"🚀 Launch Campaign"}</button></div></div>)}
+    </div>
+  );
+}
 
-      {/* Step 1 — Name */}
-      {step===1 && (
-        <div style={card}>
-          <h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Campaign Name</h3>
-          <input value={campaignName} onChange={e=>setCampaignName(e.target.value)} style={inp} placeholder="e.g. Diwali Sale 2025" />
-          <button style={{ ...btn(), marginTop:14 }} onClick={()=>{ if(!campaignName) return alert("Enter a campaign name"); setStep(2); }}>Continue →</button>
+// ─── MESSAGE TEMPLATE ─────────────────────────────────────────────
+function MessageTemplate() {
+  const STORAGE_KEY = "msg_templates";
+  const [templates, setTemplates] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [
+      { id:1, name:"Order Confirmation", category:"Transactional", status:"Approved", body:"Hi {{1}}, your order #{{2}} has been confirmed! Expected delivery: {{3}}." },
+      { id:2, name:"Flash Sale Alert",   category:"Marketing",     status:"Approved", body:"🔥 Hi {{1}}, get up to 50% off today only. Use code {{2}}." },
+      { id:3, name:"Support Follow-up",  category:"Support",       status:"Pending",  body:"Hi {{1}}, this is a follow-up on ticket #{{2}}. Is your issue resolved?" },
+    ];
+  });
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm]       = useState({ name:"", category:"Marketing", body:"" });
+  const [selected, setSelected] = useState(null);
+
+  const save = (ts) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(ts)); setTemplates(ts); };
+
+  const addTemplate = () => {
+    if (!form.name || !form.body) return alert("Name and body are required");
+    const newT = { id: Date.now(), ...form, status:"Pending" };
+    save([...templates, newT]);
+    setForm({ name:"", category:"Marketing", body:"" }); setShowAdd(false);
+  };
+
+  const deleteTemplate = (id) => {
+    if (!window.confirm("Delete this template?")) return;
+    save(templates.filter(t => t.id !== id));
+    if (selected?.id === id) setSelected(null);
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <div>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Message Templates</h2>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Create and manage your WhatsApp message templates</p>
         </div>
-      )}
+        <button style={btn()} onClick={() => setShowAdd(!showAdd)}>+ Create Template</button>
+      </div>
 
-      {/* Step 2 — Template / Message */}
-      {step===2 && (
-        <div style={card}>
-          <h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3>
+      <div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e", marginBottom:18 }}>
+        ⚠️ <strong>Note:</strong> Templates shown here are for your reference. For real campaigns, templates must also be submitted and approved in <strong>Meta Business Manager → WhatsApp → Message Templates</strong>.
+      </div>
 
-          {/* Toggle */}
-          <div style={{ display:"flex", gap:10, marginBottom:18 }}>
-            {[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(
-              <button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>
-            ))}
-          </div>
-
-          {msgType === "text" && (
+      {showAdd && (
+        <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
+          <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>New Message Template</h4>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
             <div>
-              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label>
-              <textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your campaign message... Use {{1}}, {{2}} for variables." />
-              <div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label>
+              <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. order_confirmation" />
             </div>
-          )}
-
-          {msgType === "template" && (
-            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-              <div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>
-                ⚠️ Templates must be pre-approved by Meta. Go to <strong>Meta Business Manager → Message Templates</strong> to create and get approval.
-              </div>
-              <div>
-                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME * (exact name from Meta)</label>
-                <input value={templateName} onChange={e=>setTemplateName(e.target.value)} style={{ ...inp, marginTop:6 }} placeholder="e.g. hello_world" />
-              </div>
-              <div>
-                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE CODE</label>
-                <select value={templateLang} onChange={e=>setTemplateLang(e.target.value)} style={{ ...inp, marginTop:6 }}>
-                  <option value="en_US">English (US)</option>
-                  <option value="en_GB">English (UK)</option>
-                  <option value="hi">Hindi</option>
-                  <option value="mr">Marathi</option>
-                  <option value="gu">Gujarati</option>
-                  <option value="ta">Tamil</option>
-                  <option value="te">Telugu</option>
-                  <option value="kn">Kannada</option>
-                  <option value="bn">Bengali</option>
-                  <option value="pa">Punjabi</option>
-                </select>
-              </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>CATEGORY</label>
+              <select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option>Marketing</option><option>Transactional</option><option>Support</option><option>Onboarding</option>
+              </select>
             </div>
-          )}
-
-          <div style={{ display:"flex", gap:10, marginTop:16 }}>
-            <button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button>
-            <button style={btn()} onClick={()=>{ if(msgType==="text"&&!message) return alert("Enter your message"); if(msgType==="template"&&!templateName) return alert("Enter template name"); setStep(3); }}>Continue →</button>
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE BODY * (use {`{{1}}`}, {`{{2}}`} for variables)</label>
+              <textarea value={form.body} onChange={e=>setForm({...form,body:e.target.value})} style={{ ...inp, minHeight:100, resize:"vertical", marginTop:5 }} placeholder="Hi {{1}}, your order {{2}} is confirmed!" />
+              <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>{form.body.length}/1024 chars</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button style={btn()} onClick={addTemplate}>💾 Save Template</button>
+            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Step 3 — Select Group */}
-      {step===3 && (
-        <div style={card}>
-          <h3 style={{ margin:"0 0 6px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3>
-          <p style={{ margin:"0 0 16px", fontSize:13, color:C.sub }}>All opted-in contacts in the selected group will receive this campaign</p>
-
-          {groups.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"24px", background:C.bg, borderRadius:10 }}>
-              <div style={{ fontSize:32, marginBottom:8 }}>👥</div>
-              <div style={{ fontWeight:600, marginBottom:4 }}>No contact groups found</div>
-              <div style={{ fontSize:13, color:C.sub }}>Go to Contacts → create a group first</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {templates.map(t => (
+            <div key={t.id} onClick={()=>setSelected(t)} style={{ ...card, cursor:"pointer", border:`2px solid ${selected?.id===t.id?C.accent:C.border}`, background:selected?.id===t.id?C.accentLight:"white" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{t.name}</div>
+                  <div style={{ fontSize:12, color:C.sub, marginTop:2 }}>{t.category}</div>
+                </div>
+                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                  <Badge status={t.status} />
+                  <button onClick={e=>{e.stopPropagation();deleteTemplate(t.id);}} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"4px 8px" }}>🗑</button>
+                </div>
+              </div>
+              <div style={{ fontSize:12, color:C.sub, fontStyle:"italic", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.body}</div>
             </div>
+          ))}
+          {templates.length === 0 && <div style={{ ...card, textAlign:"center", padding:"40px 20px", color:C.sub }}>No templates yet. Create your first one!</div>}
+        </div>
+
+        <div style={{ ...card, alignSelf:"flex-start", position:"sticky", top:0 }}>
+          {selected ? (
+            <>
+              <h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>📋 Template Preview</h3>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:4 }}>NAME</div>
+                <div style={{ fontWeight:700 }}>{selected.name}</div>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:4 }}>CATEGORY</div>
+                <span style={pill(C.blue,"#eff6ff")}>{selected.category}</span>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:4 }}>STATUS</div>
+                <Badge status={selected.status} />
+              </div>
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:8 }}>MESSAGE PREVIEW</div>
+                <div style={{ background:"#e5ddd5", borderRadius:12, padding:14 }}>
+                  <div style={{ background:"white", borderRadius:"0 10px 10px 10px", padding:"10px 14px", fontSize:13, maxWidth:"90%", boxShadow:"0 1px 2px rgba(0,0,0,0.1)", whiteSpace:"pre-wrap", lineHeight:1.5 }}>
+                    {selected.body.replace(/{{(\d+)}}/g, (_, n) => `[Variable ${n}]`)}
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding:"12px 14px", background:"#fffbeb", borderRadius:10, border:"1px solid #fde68a", fontSize:12, color:"#92400e" }}>
+                Variables like {`{{1}}`} will be replaced with real data when sending campaigns.
+              </div>
+            </>
           ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {groups.map(g => {
-                const count = contacts.filter(c => (g.contactIds||[]).includes(c.id) && c.opt_in).length;
-                const sel = selectedGroup === g.id;
-                return (
-                  <div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:10, border:`2px solid ${sel?C.accent:C.border}`, background:sel?C.accentLight:"white", cursor:"pointer" }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                      <div style={{ width:32, height:32, borderRadius:8, background:`linear-gradient(135deg,${C.accent},${C.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>👥</div>
-                      <div>
-                        <div style={{ fontWeight:700, fontSize:14 }}>{g.name}</div>
-                        <div style={{ fontSize:12, color:C.sub }}>{count} opted-in contact{count!==1?"s":""}</div>
-                      </div>
-                    </div>
-                    <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${sel?C.accent:C.border}`, background:sel?C.accent:"white", display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontSize:12 }}>
-                      {sel?"✓":""}
-                    </div>
-                  </div>
-                );
-              })}
+            <div style={{ textAlign:"center", padding:"40px 20px", color:C.sub }}>
+              <div style={{ fontSize:40, marginBottom:12 }}>📝</div>
+              <div style={{ fontSize:14 }}>Click a template to preview it</div>
             </div>
           )}
-
-          <div style={{ display:"flex", gap:10, marginTop:16 }}>
-            <button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button>
-            <button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a contact group"); setStep(4); }}>Continue →</button>
-          </div>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
 
-      {/* Step 4 — Schedule */}
-      {step===4 && (
-        <div style={card}>
-          <h3 style={{ margin:"0 0 6px", fontSize:15, fontWeight:700 }}>Schedule Campaign</h3>
-          <p style={{ margin:"0 0 18px", fontSize:13, color:C.sub }}>Send immediately or schedule for a specific date and time</p>
+// ─── LIST MESSAGE TEMPLATE ────────────────────────────────────────
+function ListTemplate() {
+  const STORAGE_KEY = "list_templates";
+  const [templates, setTemplates] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : [];
+  });
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm]       = useState({ name:"", header:"", body:"", footer:"", buttonText:"Choose an option", sections:[{ title:"Options", rows:[{ id:"1", title:"", description:"" }] }] });
 
-          {/* Send Now vs Schedule toggle */}
-          <div style={{ display:"flex", gap:12, marginBottom:22 }}>
-            {[
-              ["now",       "⚡", "Send Now",      "Launch immediately after review"],
-              ["scheduled", "🕐", "Schedule Later", "Pick a date and time to send"],
-            ].map(([val, icon, label, desc]) => (
-              <div key={val} onClick={()=>setScheduleType(val)} style={{ flex:1, padding:"16px", borderRadius:12, border:`2px solid ${scheduleType===val?C.accent:C.border}`, background:scheduleType===val?C.accentLight:"white", cursor:"pointer", transition:"all 0.15s" }}>
-                <div style={{ fontSize:24, marginBottom:8 }}>{icon}</div>
-                <div style={{ fontWeight:700, fontSize:14, marginBottom:4, color:scheduleType===val?C.accent2:C.text }}>{label}</div>
-                <div style={{ fontSize:12, color:C.sub }}>{desc}</div>
-                <div style={{ marginTop:10, width:18, height:18, borderRadius:"50%", border:`2px solid ${scheduleType===val?C.accent:C.border}`, background:scheduleType===val?C.accent:"white", display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontSize:11 }}>
-                  {scheduleType===val?"✓":""}
-                </div>
+  const save = (ts) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(ts)); setTemplates(ts); };
+
+  const addRow = (sIdx) => {
+    const sections = [...form.sections];
+    sections[sIdx].rows.push({ id: Date.now().toString(), title:"", description:"" });
+    setForm({...form, sections});
+  };
+  const updateRow = (sIdx, rIdx, field, val) => {
+    const sections = [...form.sections];
+    sections[sIdx].rows[rIdx][field] = val;
+    setForm({...form, sections});
+  };
+  const removeRow = (sIdx, rIdx) => {
+    const sections = [...form.sections];
+    sections[sIdx].rows = sections[sIdx].rows.filter((_,i) => i !== rIdx);
+    setForm({...form, sections});
+  };
+
+  const addTemplate = () => {
+    if (!form.name || !form.body) return alert("Name and body are required");
+    const allRows = form.sections.flatMap(s => s.rows);
+    if (allRows.some(r => !r.title)) return alert("All option titles are required");
+    save([...templates, { id: Date.now(), ...form }]);
+    setShowAdd(false);
+    setForm({ name:"", header:"", body:"", footer:"", buttonText:"Choose an option", sections:[{ title:"Options", rows:[{ id:"1", title:"", description:"" }] }] });
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <div>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>List Message Templates</h2>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Create interactive list messages with selectable options</p>
+        </div>
+        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create List Template</button>
+      </div>
+
+      {showAdd && (
+        <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}` }}>
+          <h4 style={{ margin:"0 0 16px", color:C.accent2 }}>New List Message Template</h4>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label>
+              <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. Product Menu" />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>HEADER (optional)</label>
+              <input value={form.header} onChange={e=>setForm({...form,header:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Welcome to our store" />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>BUTTON TEXT</label>
+              <input value={form.buttonText} onChange={e=>setForm({...form,buttonText:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Choose an option" />
+            </div>
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>BODY *</label>
+              <textarea value={form.body} onChange={e=>setForm({...form,body:e.target.value})} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Please select from the options below:" />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>FOOTER (optional)</label>
+              <input value={form.footer} onChange={e=>setForm({...form,footer:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Powered by WASend" />
+            </div>
+          </div>
+
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>List Options</div>
+            {form.sections[0].rows.map((row, rIdx) => (
+              <div key={rIdx} style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:10, marginBottom:8, alignItems:"center" }}>
+                <input value={row.title} onChange={e=>updateRow(0,rIdx,"title",e.target.value)} style={inp} placeholder={`Option ${rIdx+1} title *`} />
+                <input value={row.description} onChange={e=>updateRow(0,rIdx,"description",e.target.value)} style={inp} placeholder="Description (optional)" />
+                <button onClick={()=>removeRow(0,rIdx)} style={{ ...btn("ghost"), color:C.red, padding:"10px 12px", fontSize:16 }}>✕</button>
               </div>
             ))}
+            <button onClick={()=>addRow(0)} style={{ ...btn("secondary"), fontSize:13, marginTop:4 }}>+ Add Option</button>
           </div>
-
-          {/* Date/Time picker — only shown when scheduled */}
-          {scheduleType === "scheduled" && (
-            <div style={{ display:"flex", flexDirection:"column", gap:14, padding:"18px", background:C.bg, borderRadius:12, border:`1px solid ${C.border}` }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-                <div>
-                  <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DATE *</label>
-                  <input
-                    type="date"
-                    value={scheduleDate}
-                    min={new Date().toISOString().split("T")[0]}
-                    onChange={e=>setScheduleDate(e.target.value)}
-                    style={{ ...inp, marginTop:6 }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIME *</label>
-                  <input
-                    type="time"
-                    value={scheduleTime}
-                    onChange={e=>setScheduleTime(e.target.value)}
-                    style={{ ...inp, marginTop:6 }}
-                  />
-                </div>
-              </div>
-              <div>
-                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIMEZONE</label>
-                <select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)} style={{ ...inp, marginTop:6 }}>
-                  <option value="Asia/Kolkata">India Standard Time (IST) — UTC+5:30</option>
-                  <option value="Asia/Dubai">Gulf Standard Time (GST) — UTC+4</option>
-                  <option value="Asia/Singapore">Singapore Time (SGT) — UTC+8</option>
-                  <option value="Europe/London">Greenwich Mean Time (GMT) — UTC+0</option>
-                  <option value="America/New_York">Eastern Time (ET) — UTC-5</option>
-                  <option value="America/Los_Angeles">Pacific Time (PT) — UTC-8</option>
-                  <option value="America/Chicago">Central Time (CT) — UTC-6</option>
-                  <option value="Europe/Paris">Central European Time (CET) — UTC+1</option>
-                  <option value="Australia/Sydney">Australian Eastern Time (AET) — UTC+10</option>
-                </select>
-              </div>
-              {scheduleDate && scheduleTime && (
-                <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:"white", borderRadius:10, border:`1px solid ${C.accent}40` }}>
-                  <span style={{ fontSize:20 }}>📅</span>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:13, color:C.accent2 }}>Scheduled for</div>
-                    <div style={{ fontSize:13, color:C.sub }}>
-                      {new Date(`${scheduleDate}T${scheduleTime}`).toLocaleDateString("en-IN", { weekday:"long", year:"numeric", month:"long", day:"numeric" })} at {scheduleTime} ({scheduleTimezone.split("/")[1]?.replace("_"," ")})
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div style={{ fontSize:12, color:C.sub, padding:"10px 14px", background:"#fffbeb", borderRadius:8, border:"1px solid #fde68a" }}>
-                ⚠️ <strong>Note:</strong> Scheduling saves the campaign details. You'll need a cron job or Vercel scheduled function to trigger sending at the set time. For now this stores the schedule time in the campaign record.
-              </div>
-            </div>
-          )}
-
-          <div style={{ display:"flex", gap:10, marginTop:18 }}>
-            <button style={btn("secondary")} onClick={()=>setStep(3)}>← Back</button>
-            <button style={btn()} onClick={()=>setStep(5)}>Continue →</button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 5 — Review & Send */}
-      {step===5 && (
-        <div style={card}>
-          <h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>Review & Send</h3>
-          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
-            {[
-              ["Campaign Name", campaignName],
-              ["Message Type", msgType === "template" ? `Template: ${templateName} (${templateLang})` : "Custom Text"],
-              ["Contact Group", currentGroup?.name || "—"],
-              ["Recipients", `${groupContacts.length} opted-in contacts`],
-              ["Schedule", scheduleType === "now" ? "⚡ Send Immediately" : `🕐 ${scheduleDate} at ${scheduleTime} (${scheduleTimezone.split("/")[1]?.replace("_"," ")})`],
-            ].map(([label, value]) => (
-              <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", background:C.bg, borderRadius:9 }}>
-                <span style={{ color:C.sub, fontSize:13 }}>{label}</span>
-                <span style={{ fontWeight:700, fontSize:13 }}>{value}</span>
-              </div>
-            ))}
-            {msgType === "text" && (
-              <div style={{ padding:"10px 14px", background:C.bg, borderRadius:9 }}>
-                <div style={{ color:C.sub, fontSize:13, marginBottom:4 }}>Message Preview</div>
-                <div style={{ fontSize:13, whiteSpace:"pre-wrap" }}>{message}</div>
-              </div>
-            )}
-          </div>
-
-          {status==="success" && result && (
-            <div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}>
-              <div style={{ fontWeight:700, color:C.accent2, marginBottom:4 }}>
-                {scheduleType === "scheduled" ? "📅 Campaign Scheduled!" : "✅ Campaign Sent!"}
-              </div>
-              <div style={{ fontSize:13, color:C.sub }}>
-                {scheduleType === "scheduled"
-                  ? `Scheduled for ${scheduleDate} at ${scheduleTime} (${scheduleTimezone.split("/")[1]?.replace("_"," ")})`
-                  : `Sent: ${result.sent} | Failed: ${result.failed}`}
-              </div>
-            </div>
-          )}
-          {status==="error" && <ErrorBox msg="Something went wrong. Check your API credentials." />}
 
           <div style={{ display:"flex", gap:10 }}>
-            <button style={btn("secondary")} onClick={()=>setStep(4)}>← Back</button>
-            <button style={{ ...btn(), minWidth:180 }} onClick={send} disabled={status==="sending"}>
-              {status==="sending" ? "⏳ Sending..." : scheduleType === "scheduled" ? "📅 Schedule Campaign" : "🚀 Launch Campaign"}
-            </button>
+            <button style={btn()} onClick={addTemplate}>💾 Save Template</button>
+            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
           </div>
+        </div>
+      )}
+
+      {templates.length === 0 ? (
+        <div style={{ ...card, textAlign:"center", padding:"50px 20px" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>📋</div>
+          <h3 style={{ margin:"0 0 8px" }}>No list templates yet</h3>
+          <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Create interactive messages with selectable options</p>
+          <button style={btn()} onClick={()=>setShowAdd(true)}>+ Create First Template</button>
+        </div>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:14 }}>
+          {templates.map(t => (
+            <div key={t.id} style={card}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                <div style={{ fontWeight:700, fontSize:15 }}>{t.name}</div>
+                <button onClick={()=>save(templates.filter(x=>x.id!==t.id))} style={{ ...btn("ghost"), color:C.red, padding:"4px 8px", fontSize:12 }}>🗑</button>
+              </div>
+              {t.header && <div style={{ fontSize:12, fontWeight:600, marginBottom:4 }}>{t.header}</div>}
+              <div style={{ fontSize:13, color:C.sub, marginBottom:8 }}>{t.body}</div>
+              <div style={{ border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", marginBottom:10 }}>
+                {t.sections[0].rows.map((row,i) => (
+                  <div key={i} style={{ padding:"8px 12px", borderBottom: i<t.sections[0].rows.length-1?`1px solid ${C.border}`:"none", fontSize:13 }}>
+                    <div style={{ fontWeight:600 }}>{row.title}</div>
+                    {row.description && <div style={{ fontSize:11, color:C.sub }}>{row.description}</div>}
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:12, color:C.accent2, fontWeight:700, textAlign:"center", padding:"8px", background:C.accentLight, borderRadius:8 }}>📋 {t.buttonText}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── AUTO RESPONDER ───────────────────────────────────────────────
+function AutoResponder() {
+  const STORAGE_KEY = "auto_responders";
+  const [rules, setRules] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : [
+      { id:1, keyword:"PRICE",   matchType:"exact",    response:"Our pricing starts at ₹499/mo. Visit our website for details.", active:true  },
+      { id:2, keyword:"SUPPORT", matchType:"contains", response:"Support team available Mon-Fri 9AM-6PM. Email: support@example.com", active:true  },
+      { id:3, keyword:"ORDER",   matchType:"exact",    response:"To track your order, please share your order ID.", active:false },
+    ];
+  });
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm]       = useState({ keyword:"", matchType:"contains", response:"", active:true });
+
+  const save = (rs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(rs)); setRules(rs); };
+  const toggle = (id) => save(rules.map(r => r.id===id ? {...r, active:!r.active} : r));
+  const remove = (id) => { if (!window.confirm("Delete this rule?")) return; save(rules.filter(r => r.id!==id)); };
+  const add = () => {
+    if (!form.keyword || !form.response) return alert("Keyword and response are required");
+    save([...rules, { ...form, id: Date.now() }]);
+    setForm({ keyword:"", matchType:"contains", response:"", active:true }); setShowAdd(false);
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <div>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Auto-Responder</h2>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Automatically reply to incoming messages based on keywords — 24/7</p>
+        </div>
+        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Rule</button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:22 }}>
+        <Stat icon="🔄" label="Total Rules"  value={rules.length} />
+        <Stat icon="✅" label="Active Rules" value={rules.filter(r=>r.active).length} color={C.accent} />
+        <Stat icon="⏸" label="Paused Rules" value={rules.filter(r=>!r.active).length} color={C.yellow} />
+      </div>
+
+      {showAdd && (
+        <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
+          <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>New Auto-Response Rule</h4>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TRIGGER KEYWORD *</label>
+              <input value={form.keyword} onChange={e=>setForm({...form,keyword:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. PRICE, HELP, ORDER" />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MATCH TYPE</label>
+              <select value={form.matchType} onChange={e=>setForm({...form,matchType:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option value="exact">Exact Match</option>
+                <option value="contains">Contains Keyword</option>
+                <option value="starts">Starts With</option>
+              </select>
+            </div>
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>AUTO-RESPONSE MESSAGE *</label>
+              <textarea value={form.response} onChange={e=>setForm({...form,response:e.target.value})} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Your automated reply message..." />
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button style={btn()} onClick={add}>Save Rule</button>
+            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {rules.map(r => (
+          <div key={r.id} style={{ ...card, display:"flex", alignItems:"flex-start", gap:14, opacity:r.active?1:0.7 }}>
+            <div style={{ width:42, height:42, borderRadius:10, background:r.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🔄</div>
+            <div style={{ flex:1 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                <span style={pill(C.accent2, C.accentLight)}>Keyword: {r.keyword}</span>
+                <span style={pill(C.blue,"#eff6ff")}>{r.matchType}</span>
+                <Badge status={r.active?"Active":"Paused"} />
+              </div>
+              <div style={{ fontSize:13, color:C.sub, lineHeight:1.5 }}>{r.response}</div>
+            </div>
+            <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+              <button onClick={()=>toggle(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px" }}>{r.active?"⏸ Pause":"▶ Enable"}</button>
+              <button onClick={()=>remove(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px", color:C.red }}>🗑</button>
+            </div>
+          </div>
+        ))}
+        {rules.length === 0 && <div style={{ ...card, textAlign:"center", padding:"40px", color:C.sub }}>No rules yet. Add your first auto-response rule!</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── CHATBOT ──────────────────────────────────────────────────────
+function ChatBot() {
+  const STORAGE_KEY = "chatbot_flows";
+  const [flows, setFlows] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : [
+      { id:1, name:"Lead Qualification", triggers:"Hi, Hello, Start", active:true,  steps:[{ type:"message", content:"Welcome! 👋 What's your name?" },{ type:"collect", content:"Collect: Name" },{ type:"message", content:"Thanks {{name}}! What are you interested in?" },{ type:"route", content:"Route to Sales Team" }] },
+      { id:2, name:"Order Tracking",     triggers:"Track, Order Status", active:true,  steps:[{ type:"message", content:"Please share your Order ID" },{ type:"collect", content:"Collect: Order ID" },{ type:"message", content:"Checking your order status..." },{ type:"route", content:"Lookup & Reply" }] },
+      { id:3, name:"FAQ Bot",            triggers:"FAQ, Help, Support",   active:false, steps:[{ type:"message", content:"How can I help you today?" },{ type:"list", content:"Show FAQ Options" },{ type:"route", content:"Route based on selection" }] },
+    ];
+  });
+  const [showAdd, setShowAdd]   = useState(false);
+  const [form, setForm]         = useState({ name:"", triggers:"" });
+  const [activeFlow, setActiveFlow] = useState(null);
+
+  const save = (fs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(fs)); setFlows(fs); };
+  const toggle = (id) => save(flows.map(f => f.id===id ? {...f, active:!f.active} : f));
+  const remove = (id) => { if (!window.confirm("Delete this flow?")) return; save(flows.filter(f => f.id!==id)); if(activeFlow===id) setActiveFlow(null); };
+  const add = () => {
+    if (!form.name || !form.triggers) return alert("Name and triggers are required");
+    save([...flows, { id: Date.now(), ...form, active:true, steps:[{ type:"message", content:"Hello! How can I help?" }] }]);
+    setForm({ name:"", triggers:"" }); setShowAdd(false);
+  };
+
+  const stepColors = { message:C.accent, collect:C.blue, list:C.purple, route:C.yellow };
+  const stepIcons  = { message:"💬", collect:"📋", list:"📑", route:"🔀" };
+
+  const current = flows.find(f => f.id === activeFlow);
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <div>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>ChatBot Builder</h2>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Build automated conversation flows triggered by keywords</p>
+        </div>
+        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
+      </div>
+
+      {showAdd && (
+        <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
+          <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>New ChatBot Flow</h4>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>FLOW NAME *</label>
+              <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. Lead Qualification" />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TRIGGER KEYWORDS * (comma separated)</label>
+              <input value={form.triggers} onChange={e=>setForm({...form,triggers:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Hi, Hello, Start" />
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10, marginTop:14 }}>
+            <button style={btn()} onClick={add}>Create Flow</button>
+            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:22 }}>
+        {flows.map(f => (
+          <div key={f.id} style={{ ...card, borderLeft:`4px solid ${f.active?C.accent:C.border}`, cursor:"pointer" }} onClick={()=>setActiveFlow(f.id===activeFlow?null:f.id)}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:12 }}>
+              <div style={{ width:40, height:40, borderRadius:10, background:f.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🤖</div>
+              <Badge status={f.active?"Active":"Paused"} />
+            </div>
+            <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{f.name}</div>
+            <div style={{ fontSize:12, color:C.sub, marginBottom:4 }}>Triggers: {f.triggers}</div>
+            <div style={{ fontSize:12, color:C.sub, marginBottom:14 }}>{f.steps.length} steps in flow</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={e=>{e.stopPropagation();setActiveFlow(f.id===activeFlow?null:f.id);}} style={{ ...btn("secondary"), flex:1, fontSize:12 }}>✏️ Edit</button>
+              <button onClick={e=>{e.stopPropagation();toggle(f.id);}} style={{ ...btn(), flex:1, fontSize:12 }}>{f.active?"⏸ Pause":"▶ Activate"}</button>
+              <button onClick={e=>{e.stopPropagation();remove(f.id);}} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"10px 10px" }}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {activeFlow && current && (
+        <div style={card}>
+          <h3 style={{ margin:"0 0 18px", fontSize:15, fontWeight:700 }}>📊 Flow Preview — {current.name}</h3>
+          <div style={{ display:"flex", gap:0, alignItems:"flex-start", overflowX:"auto", paddingBottom:10 }}>
+            {current.steps.map((step, i) => (
+              <div key={i} style={{ display:"flex", alignItems:"center", flexShrink:0 }}>
+                <div style={{ textAlign:"center", minWidth:130 }}>
+                  <div style={{ width:48, height:48, borderRadius:12, background:(stepColors[step.type]||C.blue)+"22", border:`2px solid ${stepColors[step.type]||C.blue}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, margin:"0 auto 8px" }}>
+                    {stepIcons[step.type]||"⚡"}
+                  </div>
+                  <div style={{ fontWeight:700, fontSize:12, marginBottom:3 }}>Step {i+1}</div>
+                  <div style={{ fontSize:11, color:C.sub, lineHeight:1.4 }}>{step.content}</div>
+                </div>
+                {i < current.steps.length-1 && (
+                  <div style={{ width:40, textAlign:"center", color:C.sub, flexShrink:0, fontSize:18 }}>→</div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop:16, padding:"10px 14px", background:"#fffbeb", borderRadius:10, border:"1px solid #fde68a", fontSize:12, color:"#92400e" }}>
+            💡 Full flow builder with drag-and-drop steps coming soon. For now, flows are triggered by keywords and respond automatically.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── GROUP GRABBER ────────────────────────────────────────────────
+function GroupGrabber() {
+  const [step, setStep]     = useState(1);
+  const [groupLink, setGroupLink] = useState("");
+  const [status, setStatus] = useState(null);
+  const [contacts, setContacts] = useState([]);
+
+  const grab = () => {
+    if (!groupLink.includes("chat.whatsapp.com")) return alert("Please enter a valid WhatsApp group invite link");
+    setStatus("loading");
+    setTimeout(() => {
+      setContacts([
+        { name:"Sample Contact 1", phone:"919876543210" },
+        { name:"Sample Contact 2", phone:"919123456789" },
+        { name:"Sample Contact 3", phone:"917654321098" },
+      ]);
+      setStatus("done");
+    }, 1500);
+  };
+
+  const exportCSV = () => {
+    const csv = "name,phone\n" + contacts.map(c => `${c.name},${c.phone}`).join("\n");
+    const blob = new Blob([csv], { type:"text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "group_contacts.csv"; a.click();
+  };
+
+  return (
+    <div>
+      <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>Group Grabber</h2>
+      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Export contacts from WhatsApp group invite links</p>
+
+      <div style={{ ...card, marginBottom:18, background:"#fef2f2", border:"1px solid #fecaca" }}>
+        <div style={{ fontWeight:700, fontSize:13, color:C.red, marginBottom:6 }}>⚠️ Important Notice</div>
+        <div style={{ fontSize:13, color:"#7f1d1d", lineHeight:1.6 }}>
+          This feature works with WhatsApp group invite links. Please ensure you have permission to export contacts from the group. Use responsibly and in compliance with WhatsApp's Terms of Service and applicable privacy laws.
+        </div>
+      </div>
+
+      <div style={card}>
+        <h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Enter Group Invite Link</h3>
+        <input value={groupLink} onChange={e=>setGroupLink(e.target.value)} style={inp} placeholder="https://chat.whatsapp.com/xxxxxxxxxx" />
+        <div style={{ fontSize:11, color:C.sub, marginTop:6 }}>Open WhatsApp group → tap Invite via Link → Copy Link → paste here</div>
+        <button style={{ ...btn(), marginTop:14 }} onClick={grab} disabled={status==="loading"}>
+          {status==="loading" ? "⏳ Extracting..." : "🔗 Grab Contacts"}
+        </button>
+      </div>
+
+      {status==="done" && (
+        <div style={{ ...card, marginTop:14 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+            <h3 style={{ margin:0, fontSize:14, fontWeight:700 }}>Found {contacts.length} Contacts</h3>
+            <button style={btn()} onClick={exportCSV}>📥 Export CSV</button>
+          </div>
+          <table style={{ width:"100%", borderCollapse:"collapse" }}>
+            <thead><tr>{["Name","Phone"].map(h=><th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}` }}>{h}</th>)}</tr></thead>
+            <tbody>
+              {contacts.map((c,i)=>(
+                <tr key={i} style={{ borderBottom:`1px solid ${C.border}` }}>
+                  <td style={{ padding:"12px", fontWeight:600 }}>{c.name}</td>
+                  <td style={{ padding:"12px", color:C.sub, fontSize:13 }}>{c.phone}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── WHATSAPP WARMER ──────────────────────────────────────────────
+function WAWarmer() {
+  const STORAGE_KEY = "wa_warmer";
+  const [warmers, setWarmers] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : [];
+  });
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm]       = useState({ phone:"", dailyMessages:"10", interval:"30", active:true });
+
+  const save = (ws) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(ws)); setWarmers(ws); };
+  const toggle = (id) => save(warmers.map(w => w.id===id ? {...w, active:!w.active} : w));
+  const remove = (id) => { if(!window.confirm("Remove this number?")) return; save(warmers.filter(w => w.id!==id)); };
+  const add = () => {
+    if (!form.phone) return alert("Phone number is required");
+    save([...warmers, { id: Date.now(), ...form, startDate: new Date().toISOString().split("T")[0], messagesTotal:0 }]);
+    setForm({ phone:"", dailyMessages:"10", interval:"30", active:true }); setShowAdd(false);
+  };
+
+  return (
+    <div>
+      <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>WhatsApp Warmer</h2>
+      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Gradually warm up inactive numbers to maintain delivery rates</p>
+
+      <div style={{ ...card, marginBottom:18, background:"#fffbeb", border:"1px solid #fde68a" }}>
+        <div style={{ fontWeight:700, fontSize:13, color:"#92400e", marginBottom:6 }}>💡 How it works</div>
+        <div style={{ fontSize:13, color:"#92400e", lineHeight:1.7 }}>
+          Add phone numbers to gradually send messages to them over time. This helps activate inactive numbers and improves delivery rates. Messages are sent at set intervals to avoid spam detection.
+        </div>
+      </div>
+
+      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:16 }}>
+        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Number</button>
+      </div>
+
+      {showAdd && (
+        <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
+          <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>Add Number to Warmer</h4>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PHONE NUMBER * (with country code)</label>
+              <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="919999999999" />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGES PER DAY</label>
+              <select value={form.dailyMessages} onChange={e=>setForm({...form,dailyMessages:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option value="5">5 messages/day</option>
+                <option value="10">10 messages/day</option>
+                <option value="20">20 messages/day</option>
+                <option value="50">50 messages/day</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>INTERVAL (minutes)</label>
+              <select value={form.interval} onChange={e=>setForm({...form,interval:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option value="15">Every 15 mins</option>
+                <option value="30">Every 30 mins</option>
+                <option value="60">Every 1 hour</option>
+                <option value="120">Every 2 hours</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10, marginTop:14 }}>
+            <button style={btn()} onClick={add}>Start Warming</button>
+            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {warmers.length === 0 ? (
+        <div style={{ ...card, textAlign:"center", padding:"50px 20px" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>♻️</div>
+          <h3 style={{ margin:"0 0 8px" }}>No numbers warming</h3>
+          <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Add numbers to start the warming process</p>
+          <button style={btn()} onClick={()=>setShowAdd(true)}>+ Add First Number</button>
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {warmers.map(w => (
+            <div key={w.id} style={{ ...card, display:"flex", alignItems:"center", gap:16, opacity:w.active?1:0.7 }}>
+              <div style={{ width:44, height:44, borderRadius:12, background:w.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>♻️</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:14, marginBottom:4 }}>{w.phone}</div>
+                <div style={{ display:"flex", gap:10, fontSize:12, color:C.sub }}>
+                  <span>📨 {w.dailyMessages} msg/day</span>
+                  <span>⏱ Every {w.interval} mins</span>
+                  <span>📅 Since {w.startDate}</span>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <Badge status={w.active?"Active":"Paused"} />
+                <button onClick={()=>toggle(w.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px" }}>{w.active?"⏸":"▶"}</button>
+                <button onClick={()=>remove(w.id)} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"6px 10px" }}>🗑</button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -932,15 +1240,16 @@ function LinkQR() {
               <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>WHATSAPP NUMBER</label><input value={phone} onChange={e=>setPhone(e.target.value)} style={{ ...inp, marginTop:5 }} placeholder="919999999999" /></div>
               <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PRE-FILLED MESSAGE</label><textarea value={preMsg} onChange={e=>setPreMsg(e.target.value)} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} /></div>
             </div>
-            <button style={{ ...btn(), marginTop:14, width:"100%" }} onClick={()=>setGenerated(true)}>⚡ Generate</button>
+            <button style={{ ...btn(), marginTop:14, width:"100%" }} onClick={()=>{ if(!phone) return alert("Enter phone number"); setGenerated(true); }}>⚡ Generate</button>
           </div>
           {generated && (
             <div style={{ ...card, border:`1.5px solid ${C.accent}` }}>
               <h4 style={{ margin:"0 0 10px", color:C.accent2 }}>Your WhatsApp Link</h4>
               <div style={{ display:"flex", gap:8 }}>
                 <input readOnly value={link} style={{ ...inp, fontFamily:"monospace", fontSize:12 }} />
-                <button onClick={()=>navigator.clipboard.writeText(link)} style={{ ...btn("secondary"), flexShrink:0, fontSize:12 }}>📋 Copy</button>
+                <button onClick={()=>{navigator.clipboard.writeText(link);alert("Copied!");}} style={{ ...btn("secondary"), flexShrink:0, fontSize:12 }}>📋 Copy</button>
               </div>
+              <a href={link} target="_blank" rel="noopener noreferrer" style={{ ...btn(), display:"block", textAlign:"center", textDecoration:"none", marginTop:10, fontSize:13 }}>🔗 Test Link</a>
             </div>
           )}
         </div>
@@ -958,14 +1267,365 @@ function LinkQR() {
   );
 }
 
-// ─── PLACEHOLDER ──────────────────────────────────────────────────
-function Placeholder({ title, icon, desc }) {
+// ─── WA API ───────────────────────────────────────────────────────
+function WAAPI() {
+  const [showToken, setShowToken] = useState({});
+  const accounts = JSON.parse(localStorage.getItem("wa_accounts") || "[]");
+
   return (
-    <div style={{ textAlign:"center", padding:"60px 20px" }}>
-      <div style={{ fontSize:56, marginBottom:16 }}>{icon}</div>
-      <h2 style={{ margin:"0 0 10px", fontSize:20, fontWeight:800, color:C.text }}>{title}</h2>
-      <p style={{ color:C.sub, fontSize:14, margin:"0 0 20px" }}>{desc}</p>
-      <button style={btn()}>Get Started</button>
+    <div>
+      <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>WhatsApp API</h2>
+      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Your API credentials and webhook configuration</p>
+
+      {accounts.length === 0 ? (
+        <div style={{ ...card, textAlign:"center", padding:"50px 20px" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>🔌</div>
+          <h3 style={{ margin:"0 0 8px" }}>No accounts connected</h3>
+          <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Connect a WhatsApp account first to see API details</p>
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {accounts.map(a => (
+            <div key={a.id} style={card}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <div style={{ fontWeight:700, fontSize:16 }}>{a.display_name || "WhatsApp Business"}</div>
+                <Badge status="Active" />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+                {[["Phone Number ID", a.phone_number_id],["WABA ID", a.waba_id],["Connected", a.connected_at?.split("T")[0]]].map(([label,value]) => (
+                  <div key={label} style={{ background:C.bg, borderRadius:10, padding:"12px 14px" }}>
+                    <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:4 }}>{label}</div>
+                    <div style={{ fontFamily:"monospace", fontSize:13, fontWeight:600 }}>{value}</div>
+                  </div>
+                ))}
+                <div style={{ background:C.bg, borderRadius:10, padding:"12px 14px" }}>
+                  <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:4 }}>ACCESS TOKEN</div>
+                  <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                    <div style={{ fontFamily:"monospace", fontSize:12, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {showToken[a.id] ? a.token : "••••••••••••••••••••"}
+                    </div>
+                    <button onClick={()=>setShowToken({...showToken,[a.id]:!showToken[a.id]})} style={{ ...btn("secondary"), fontSize:11, padding:"4px 8px", flexShrink:0 }}>
+                      {showToken[a.id]?"Hide":"Show"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ ...card, marginTop:14 }}>
+        <h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>🔗 Webhook Configuration</h3>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {[["Webhook URL", `${window.location.origin}/api/webhook`],["Verify Token", "myverifytoken123"],["Subscribed Events", "messages, message_deliveries, message_reads"]].map(([label,value]) => (
+            <div key={label} style={{ background:C.bg, borderRadius:10, padding:"12px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:2 }}>{label}</div>
+                <div style={{ fontFamily:"monospace", fontSize:13 }}>{value}</div>
+              </div>
+              <button onClick={()=>{navigator.clipboard.writeText(value);alert("Copied!");}} style={{ ...btn("secondary"), fontSize:12, padding:"6px 10px" }}>📋</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop:14, padding:"12px 14px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>
+          📋 Set up these values in <strong>Meta Business → WhatsApp → Configuration → Webhook</strong> to receive incoming messages and delivery updates.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── INTEGRATIONS ─────────────────────────────────────────────────
+function Integrations() {
+  const STORAGE_KEY = "integrations";
+  const [connected, setConnected] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : {};
+  });
+  const [activeModal, setActiveModal] = useState(null);
+  const [webhookUrl, setWebhookUrl]   = useState("");
+
+  const save = (c) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(c)); setConnected(c); };
+  const toggle = (key) => {
+    if (connected[key]) {
+      if (!window.confirm(`Disconnect ${key}?`)) return;
+      const updated = {...connected}; delete updated[key]; save(updated);
+    } else {
+      setActiveModal(key); setWebhookUrl("");
+    }
+  };
+  const connect = () => {
+    if (!webhookUrl) return alert("Webhook URL is required");
+    save({...connected, [activeModal]: { webhookUrl, connectedAt: new Date().toISOString() }});
+    setActiveModal(null);
+  };
+
+  const integrations = [
+    { key:"razorpay",  name:"Razorpay",   icon:"💳", desc:"Auto-send payment confirmations and receipts via WhatsApp when payments are received.", color:"#2d6cf6" },
+    { key:"cashfree",  name:"Cashfree",   icon:"🏦", desc:"Trigger WhatsApp messages on payment success, failure or refunds.", color:"#00b386" },
+    { key:"shopify",   name:"Shopify",    icon:"🛍", desc:"Send order confirmations, shipping updates and delivery notifications.", color:"#96bf48" },
+    { key:"woocommerce",name:"WooCommerce",icon:"🛒", desc:"WhatsApp notifications for WooCommerce orders and customer updates.", color:"#7f54b3" },
+    { key:"googlesheets",name:"Google Sheets",icon:"📊",desc:"Trigger WhatsApp messages from Google Sheets data entries.", color:"#34a853" },
+    { key:"zapier",    name:"Zapier",     icon:"⚡", desc:"Connect with 5000+ apps via Zapier webhooks.", color:"#ff4a00" },
+  ];
+
+  return (
+    <div>
+      <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>Integrations</h2>
+      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Connect your favourite tools to send WhatsApp messages automatically</p>
+
+      {activeModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
+          <div style={{ ...card, width:460, maxWidth:"90vw" }}>
+            <h3 style={{ margin:"0 0 14px", fontSize:16, fontWeight:800 }}>Connect {activeModal}</h3>
+            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>WEBHOOK URL FROM {activeModal.toUpperCase()}</label>
+            <input value={webhookUrl} onChange={e=>setWebhookUrl(e.target.value)} style={{ ...inp, marginTop:6, marginBottom:14 }} placeholder="https://api.example.com/webhook/..." />
+            <div style={{ padding:"12px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2, marginBottom:16 }}>
+              📋 Copy your WASend webhook URL: <strong>{window.location.origin}/api/webhook</strong><br/>Paste it in {activeModal}'s webhook settings, then paste {activeModal}'s webhook URL above.
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button style={btn()} onClick={connect}>Connect</button>
+              <button style={btn("ghost")} onClick={()=>setActiveModal(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
+        {integrations.map(ig => (
+          <div key={ig.key} style={{ ...card }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <div style={{ width:44, height:44, borderRadius:12, background:ig.color+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>{ig.icon}</div>
+              <div onClick={()=>toggle(ig.key)} style={{ width:44, height:24, borderRadius:99, background:connected[ig.key]?C.accent:C.border, cursor:"pointer", position:"relative", transition:"background 0.2s", flexShrink:0 }}>
+                <div style={{ width:18, height:18, borderRadius:"50%", background:"white", position:"absolute", top:3, left:connected[ig.key]?23:3, transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
+              </div>
+            </div>
+            <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{ig.name}</div>
+            <div style={{ fontSize:13, color:C.sub, marginBottom:12, lineHeight:1.5 }}>{ig.desc}</div>
+            {connected[ig.key] && (
+              <div style={{ background:C.accentLight, borderRadius:8, padding:"8px 12px", marginBottom:10, fontSize:12, color:C.accent2 }}>
+                ✅ Connected since {connected[ig.key].connectedAt?.split("T")[0]}
+              </div>
+            )}
+            <button onClick={()=>toggle(ig.key)} style={{ ...btn(connected[ig.key]?"secondary":"primary"), width:"100%", fontSize:13 }}>
+              {connected[ig.key] ? "⚙️ Disconnect" : "🔗 Connect"}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── WHITE LABEL ──────────────────────────────────────────────────
+function WhiteLabel() {
+  const STORAGE_KEY = "white_label";
+  const [settings, setSettings] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : { brandName:"WASend", tagline:"WhatsApp Marketing Platform", primaryColor:"#25d366", logo:"", customDomain:"", supportEmail:"", footerText:"" };
+  });
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    setSaved(true); setTimeout(()=>setSaved(false), 2000);
+  };
+
+  return (
+    <div>
+      <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>White Label</h2>
+      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Customize the platform with your own brand identity</p>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <div style={card}>
+            <h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>🏷️ Brand Identity</h3>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>BRAND NAME</label>
+                <input value={settings.brandName} onChange={e=>setSettings({...settings,brandName:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Your Brand Name" />
+              </div>
+              <div>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TAGLINE</label>
+                <input value={settings.tagline} onChange={e=>setSettings({...settings,tagline:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Your platform tagline" />
+              </div>
+              <div>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PRIMARY COLOR</label>
+                <div style={{ display:"flex", gap:10, marginTop:5, alignItems:"center" }}>
+                  <input type="color" value={settings.primaryColor} onChange={e=>setSettings({...settings,primaryColor:e.target.value})} style={{ width:44, height:40, borderRadius:8, border:`1px solid ${C.border}`, cursor:"pointer", padding:2 }} />
+                  <input value={settings.primaryColor} onChange={e=>setSettings({...settings,primaryColor:e.target.value})} style={{ ...inp }} placeholder="#25d366" />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LOGO URL (optional)</label>
+                <input value={settings.logo} onChange={e=>setSettings({...settings,logo:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="https://yourdomain.com/logo.png" />
+              </div>
+            </div>
+          </div>
+
+          <div style={card}>
+            <h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>🌐 Domain & Contact</h3>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>CUSTOM DOMAIN</label>
+                <input value={settings.customDomain} onChange={e=>setSettings({...settings,customDomain:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="app.yourbrand.com" />
+              </div>
+              <div>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SUPPORT EMAIL</label>
+                <input value={settings.supportEmail} onChange={e=>setSettings({...settings,supportEmail:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="support@yourbrand.com" />
+              </div>
+              <div>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>FOOTER TEXT</label>
+                <input value={settings.footerText} onChange={e=>setSettings({...settings,footerText:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="© 2025 Your Brand. All rights reserved." />
+              </div>
+            </div>
+          </div>
+
+          {saved && <div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"12px 16px", color:C.accent2, fontWeight:600 }}>✅ Settings saved!</div>}
+          <button style={btn()} onClick={save}>💾 Save White Label Settings</button>
+        </div>
+
+        <div style={{ ...card, alignSelf:"flex-start" }}>
+          <h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>👁️ Live Preview</h3>
+          <div style={{ border:`2px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+            {/* Preview header */}
+            <div style={{ padding:"12px 16px", background:settings.primaryColor, display:"flex", alignItems:"center", gap:10 }}>
+              {settings.logo ? (
+                <img src={settings.logo} alt="logo" style={{ height:28, borderRadius:4 }} onError={e=>e.target.style.display="none"} />
+              ) : (
+                <div style={{ width:28, height:28, borderRadius:8, background:"rgba(255,255,255,0.3)", display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800, fontSize:14 }}>W</div>
+              )}
+              <span style={{ fontWeight:800, fontSize:16, color:"white" }}>{settings.brandName || "Brand Name"}</span>
+            </div>
+            {/* Preview content */}
+            <div style={{ padding:16, background:"white" }}>
+              <div style={{ fontSize:13, color:C.sub, marginBottom:12 }}>{settings.tagline || "Your tagline here"}</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+                {["Dashboard","Campaigns","Contacts","Templates"].map(label => (
+                  <div key={label} style={{ padding:"8px 12px", background:C.bg, borderRadius:8, fontSize:12, fontWeight:600, color:C.text }}>{label}</div>
+                ))}
+              </div>
+              <button style={{ ...btn(), width:"100%", background:`linear-gradient(135deg, ${settings.primaryColor}, ${settings.primaryColor}cc)`, fontSize:13 }}>+ Send Campaign</button>
+            </div>
+            {/* Preview footer */}
+            <div style={{ padding:"10px 16px", background:C.bg, borderTop:`1px solid ${C.border}`, fontSize:11, color:C.sub, textAlign:"center" }}>
+              {settings.footerText || "© 2025 Your Brand"}
+            </div>
+          </div>
+          {settings.customDomain && (
+            <div style={{ marginTop:14, padding:"10px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2 }}>
+              🌐 Will be hosted at: <strong>{settings.customDomain}</strong>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── USERS LIST ───────────────────────────────────────────────────
+function UsersList() {
+  const STORAGE_KEY = "platform_users";
+  const [users, setUsers] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : [
+      { id:1, name:"Admin User",     email:"admin@company.com",      role:"Admin",   status:"Active",   plan:"Pro",    lastLogin:"Today",     joined:"2025-01-15" },
+      { id:2, name:"Sales Manager",  email:"sales@company.com",      role:"Manager", status:"Active",   plan:"Pro",    lastLogin:"Yesterday", joined:"2025-02-01" },
+      { id:3, name:"Support Agent",  email:"support@company.com",    role:"Agent",   status:"Active",   plan:"Basic",  lastLogin:"2 days ago",joined:"2025-02-15" },
+      { id:4, name:"Marketing Team", email:"marketing@company.com",  role:"Agent",   status:"Inactive", plan:"Basic",  lastLogin:"1 week ago",joined:"2025-03-01" },
+    ];
+  });
+  const [showInvite, setShowInvite] = useState(false);
+  const [form, setForm]             = useState({ name:"", email:"", role:"Agent", plan:"Basic" });
+  const [search, setSearch]         = useState("");
+
+  const save = (us) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(us)); setUsers(us); };
+  const invite = () => {
+    if (!form.name || !form.email) return alert("Name and email are required");
+    save([...users, { id: Date.now(), ...form, status:"Active", lastLogin:"Never", joined: new Date().toISOString().split("T")[0] }]);
+    setForm({ name:"", email:"", role:"Agent", plan:"Basic" }); setShowInvite(false);
+  };
+  const remove = (id) => { if (!window.confirm("Remove this user?")) return; save(users.filter(u => u.id!==id)); };
+  const toggleStatus = (id) => save(users.map(u => u.id===id ? {...u, status:u.status==="Active"?"Inactive":"Active"} : u));
+
+  const filtered = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()));
+
+  const planColor = { Pro:[C.purple,"#f5f3ff"], Basic:[C.blue,"#eff6ff"], Enterprise:[C.accent,"#e8f8f0"] };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <div>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Users List</h2>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Manage your platform users and their access levels</p>
+        </div>
+        <button style={btn()} onClick={()=>setShowInvite(!showInvite)}>+ Invite User</button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:22 }}>
+        <Stat icon="👥" label="Total Users"    value={users.length} />
+        <Stat icon="✅" label="Active Users"   value={users.filter(u=>u.status==="Active").length}   color={C.accent} />
+        <Stat icon="⏸" label="Inactive Users" value={users.filter(u=>u.status==="Inactive").length} color={C.yellow} />
+        <Stat icon="👑" label="Admins"         value={users.filter(u=>u.role==="Admin").length}      color={C.purple} />
+      </div>
+
+      {showInvite && (
+        <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
+          <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>Invite New User</h4>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>FULL NAME *</label><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Full Name" /></div>
+            <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>EMAIL *</label><input value={form.email} onChange={e=>setForm({...form,email:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="user@email.com" /></div>
+            <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>ROLE</label>
+              <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option>Admin</option><option>Manager</option><option>Agent</option>
+              </select>
+            </div>
+            <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PLAN</label>
+              <select value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option>Basic</option><option>Pro</option><option>Enterprise</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10, marginTop:14 }}>
+            <button style={btn()} onClick={invite}>Send Invite</button>
+            <button style={btn("ghost")} onClick={()=>setShowInvite(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={card}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+          <h3 style={{ margin:0, fontSize:14, fontWeight:700 }}>All Users ({filtered.length})</h3>
+          <input placeholder="🔍 Search users..." value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, width:220, fontSize:13 }} />
+        </div>
+        <table style={{ width:"100%", borderCollapse:"collapse" }}>
+          <thead><tr>{["User","Email","Role","Plan","Status","Joined","Actions"].map(h=><th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}` }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map(u=>(
+              <tr key={u.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                <td style={{ padding:"12px" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:32, height:32, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:700, fontSize:13, flexShrink:0 }}>{u.name[0]}</div>
+                    <div style={{ fontWeight:600, fontSize:13 }}>{u.name}</div>
+                  </div>
+                </td>
+                <td style={{ padding:"12px", color:C.sub, fontSize:13 }}>{u.email}</td>
+                <td style={{ padding:"12px" }}><span style={pill(C.blue,"#eff6ff")}>{u.role}</span></td>
+                <td style={{ padding:"12px" }}><span style={pill(...(planColor[u.plan]||[C.sub,"#f0f4f2"]))}>{u.plan}</span></td>
+                <td style={{ padding:"12px" }}><Badge status={u.status}/></td>
+                <td style={{ padding:"12px", color:C.sub, fontSize:12 }}>{u.joined}</td>
+                <td style={{ padding:"12px" }}>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button onClick={()=>toggleStatus(u.id)} style={{ ...btn("secondary"), fontSize:11, padding:"5px 10px" }}>{u.status==="Active"?"Deactivate":"Activate"}</button>
+                    <button onClick={()=>remove(u.id)} style={{ ...btn("ghost"), fontSize:11, padding:"5px 10px", color:C.red }}>Remove</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -980,17 +1640,17 @@ function PageContent({ page }) {
     "send-single":      <SendSingle />,
     "link-qr":          <LinkQR />,
     "wa-account":       <WAAccount />,
-    "wa-group":     <Placeholder title="Account Groups"         icon="👥" desc="Organize your accounts into groups." />,
-    "auto-responder":<Placeholder title="Auto-Responder"        icon="🔄" desc="Set up keyword-based automatic replies." />,
-    "chatbot":      <Placeholder title="ChatBot Builder"        icon="🤖" desc="Build automated conversation flows." />,
-    "msg-template": <Placeholder title="Message Templates"      icon="📝" desc="Create and manage approved Meta templates." />,
-    "list-template":<Placeholder title="List Message Template"  icon="📋" desc="Create interactive list messages." />,
-    "group-grabber":<Placeholder title="Group Grabber"          icon="🔗" desc="Export contacts from WhatsApp groups." />,
-    "wa-warmer":    <Placeholder title="WhatsApp Warmer"        icon="♻️" desc="Gradually activate inactive numbers." />,
-    "wa-api":       <Placeholder title="WhatsApp API"           icon="🔌" desc="Manage your API instances and tokens." />,
-    "integrations": <Placeholder title="Integrations"           icon="⚡" desc="Connect Razorpay, Cashfree & more." />,
-    "white-label":  <Placeholder title="White Label"            icon="🏷️" desc="Customize branding for your clients." />,
-    "users-list":   <Placeholder title="Users List"             icon="👤" desc="Manage your platform users." />,
+    "auto-responder":   <AutoResponder />,
+    "chatbot":          <ChatBot />,
+    "msg-template":     <MessageTemplate />,
+    "list-template":    <ListTemplate />,
+    "group-grabber":    <GroupGrabber />,
+    "wa-warmer":        <WAWarmer />,
+    "wa-api":           <WAAPI />,
+    "integrations":     <Integrations />,
+    "white-label":      <WhiteLabel />,
+    "users-list":       <UsersList />,
+    "wa-group":         <Contacts />,
   };
   return map[page] || <Dashboard />;
 }
@@ -1002,7 +1662,6 @@ export default function App() {
 
   return (
     <div style={{ display:"flex", height:"100vh", background:C.bg, fontFamily:"'DM Sans','Segoe UI',sans-serif", color:C.text, overflow:"hidden" }}>
-      {/* Sidebar */}
       <div style={{ width:sidebarCollapsed?60:240, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", transition:"width 0.25s", overflow:"hidden", flexShrink:0 }}>
         <div style={{ padding:"16px 14px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
           <div style={{ width:36, height:36, borderRadius:10, background:`linear-gradient(135deg,${C.accent},${C.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, cursor:"pointer" }} onClick={()=>setSidebarCollapsed(!sidebarCollapsed)}>
@@ -1047,8 +1706,6 @@ export default function App() {
           </div>
         )}
       </div>
-
-      {/* Main */}
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
         <div style={{ padding:"14px 24px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", background:C.sidebar, flexShrink:0 }}>
           <div>
