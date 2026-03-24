@@ -5,12 +5,64 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
+// Shared send logic — used by both immediate and cron-triggered sends
+async function sendCampaign(campaign, contacts) {
+  let sent = 0, failed = 0;
+
+  for (const contact of contacts) {
+    try {
+      const payload = campaign.template_name
+        ? {
+            messaging_product: "whatsapp",
+            to: contact.phone,
+            type: "template",
+            template: { name: campaign.template_name, language: { code: campaign.language_code || "en_US" } },
+          }
+        : {
+            messaging_product: "whatsapp",
+            to: contact.phone,
+            type: "text",
+            text: { body: campaign.message },
+          };
+
+      const r = await fetch(
+        `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const rData = await r.json();
+
+      await supabase.from("messages").insert([{
+        to_number: contact.phone,
+        body: campaign.message || campaign.template_name,
+        status: r.ok ? "sent" : "failed",
+        direction: "outbound",
+        wa_message_id: rData.messages?.[0]?.id,
+      }]);
+
+      r.ok ? sent++ : failed++;
+    } catch {
+      failed++;
+    }
+  }
+
+  return { sent, failed };
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
+  // GET — fetch all campaigns
   if (req.method === "GET") {
     const { data, error } = await supabase
       .from("campaigns")
@@ -21,11 +73,17 @@ module.exports = async function handler(req, res) {
     return res.status(200).json(data);
   }
 
+  // POST — create campaign (send now OR schedule)
   if (req.method === "POST") {
-    const { name, contactIds, message, templateName, languageCode } = req.body;
+    const {
+      name, contactIds, message, templateName, languageCode,
+      scheduleType, scheduledAt, timezone,
+    } = req.body;
+
     if (!name || !contactIds?.length)
       return res.status(400).json({ error: "name and contactIds are required" });
 
+    // Fetch opted-in contacts
     const { data: contacts, error: cErr } = await supabase
       .from("contacts")
       .select("*")
@@ -36,6 +94,36 @@ module.exports = async function handler(req, res) {
     if (!contacts.length)
       return res.status(400).json({ error: "No opted-in contacts found" });
 
+    // ── SCHEDULED: save to scheduled_campaigns table ──────────────
+    if (scheduleType === "scheduled") {
+      if (!scheduledAt) return res.status(400).json({ error: "scheduledAt is required for scheduled campaigns" });
+
+      const { data: scheduled, error: schErr } = await supabase
+        .from("scheduled_campaigns")
+        .insert([{
+          name,
+          contact_ids: contactIds,
+          message: message || null,
+          template_name: templateName || null,
+          language_code: languageCode || "en_US",
+          scheduled_at: new Date(scheduledAt).toISOString(),
+          timezone: timezone || "Asia/Kolkata",
+          status: "pending",
+        }])
+        .select()
+        .single();
+
+      if (schErr) return res.status(500).json({ error: schErr.message });
+
+      return res.status(200).json({
+        success: true,
+        scheduled: true,
+        scheduledAt: scheduled.scheduled_at,
+        id: scheduled.id,
+      });
+    }
+
+    // ── SEND NOW ──────────────────────────────────────────────────
     const { data: campaign, error: campErr } = await supabase
       .from("campaigns")
       .insert([{ name, status: "Running", total: contacts.length, sent: 0, delivered: 0, failed: 0 }])
@@ -44,50 +132,10 @@ module.exports = async function handler(req, res) {
 
     if (campErr) return res.status(500).json({ error: campErr.message });
 
-    let sent = 0, failed = 0;
-    for (const contact of contacts) {
-      try {
-        const payload = templateName
-          ? {
-              messaging_product: "whatsapp",
-              to: contact.phone,
-              type: "template",
-              template: { name: templateName, language: { code: languageCode || "en_US" } },
-            }
-          : {
-              messaging_product: "whatsapp",
-              to: contact.phone,
-              type: "text",
-              text: { body: message },
-            };
-
-        const r = await fetch(
-          `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          }
-        );
-
-        const rData = await r.json();
-
-        await supabase.from("messages").insert([{
-          to_number: contact.phone,
-          body: message || templateName,
-          status: r.ok ? "sent" : "failed",
-          direction: "outbound",
-          wa_message_id: rData.messages?.[0]?.id,
-        }]);
-
-        r.ok ? sent++ : failed++;
-      } catch {
-        failed++;
-      }
-    }
+    const { sent, failed } = await sendCampaign(
+      { message, template_name: templateName, language_code: languageCode },
+      contacts
+    );
 
     await supabase
       .from("campaigns")
@@ -99,3 +147,5 @@ module.exports = async function handler(req, res) {
 
   res.status(405).json({ error: "Method not allowed" });
 };
+
+module.exports.sendCampaign = sendCampaign;
