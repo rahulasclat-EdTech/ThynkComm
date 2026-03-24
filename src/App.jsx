@@ -32,7 +32,13 @@ const C = {
 
 const pill  = (color, bg) => ({ background: bg, color, padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, display: "inline-block" });
 const card  = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px", backdropFilter: "blur(10px)" };
-const inp   = { background: "#ffffff0d", border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "11px 14px", color: C.text, fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box", fontFamily: "inherit" };
+const inp   = { background: "#0d1821", border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "11px 14px", color: C.text, fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box", fontFamily: "inherit" };
+const inpSelectStyle = `
+  select option { background: #0d1821 !important; color: #f0f8ff !important; }
+  select { background: #0d1821; color: #f0f8ff; }
+  select:focus { border-color: #1ab8a8; box-shadow: 0 0 0 3px #1ab8a830; }
+  input:focus { border-color: #1ab8a8; box-shadow: 0 0 0 3px #1ab8a830; }
+`;
 const btn   = (variant = "primary") => ({
   padding: "10px 20px", borderRadius: 10, border: "none", fontWeight: 700, cursor: "pointer", fontSize: 14,
   background: variant === "primary" ? C.gradMain : variant === "ghost" ? "transparent" : "#ffffff12",
@@ -79,22 +85,34 @@ const NAV = [
     { id: "integrations",  label: "Integrations",        icon: "⚡", sub: "Razorpay, Cashfree & more" },
   ]},
   { section: "WHITE LABEL", items: [
-    { id: "white-label", label: "White Label", icon: "🏷️", sub: "Customize your website" },
-    { id: "users-list",  label: "Users List",  icon: "👤", sub: "See your users list" },
+    { id: "white-label",  label: "White Label",         icon: "🏷️", sub: "Customize your website" },
+    { id: "customers",    label: "Customer Accounts",   icon: "🏢", sub: "Manage client accounts" },
+    { id: "users-list",   label: "Users List",          icon: "👤", sub: "See your users list" },
   ]},
 ];
 
 const scColor = {
-  Completed: [C.accent, C.accentLight], Running: ["#3b82f6","#eff6ff"],
-  Paused: [C.yellow,"#fef3c7"], Active: [C.accent, C.accentLight],
-  Approved: [C.accent, C.accentLight], Pending: [C.yellow,"#fef3c7"],
-  Inactive: [C.sub, "#f0f4f2"],
+  Completed: [C.accent, "#0e3d38"], Running: ["#4db8ff","#1a2d45"],
+  Paused: [C.yellow,"#3d3318"], Active: [C.accent, "#0e3d38"],
+  Approved: [C.accent, "#0e3d38"], Pending: [C.yellow,"#3d3318"],
+  Inactive: [C.sub, "#1e2a38"],
 };
 
 // ─── SHARED COMPONENTS ────────────────────────────────────────────
 function Badge({ status }) {
-  const [c, bg] = scColor[status] || [C.sub, "#f0f4f2"];
+  const [c, bg] = scColor[status] || [C.sub, "#1e2a38"];
   return <span style={pill(c, bg)}>{status}</span>;
+}
+
+// ─── GLOBAL DROPDOWN FIX INJECTOR ────────────────────────────────
+function GlobalStyles() {
+  return <style>{inpSelectStyle + `
+    * { scrollbar-width: thin; scrollbar-color: #1ab8a860 transparent; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #1ab8a860; border-radius: 99px; }
+    select option { background-color: #0d1821 !important; color: #f0f8ff !important; }
+  `}</style>;
 }
 function Stat({ icon, label, value, color }) {
   return (
@@ -1780,7 +1798,7 @@ function UsersList() {
 
   const filtered = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()));
 
-  const planColor = { Pro:[C.purple,"#f5f3ff"], Basic:[C.blue,"#eff6ff"], Enterprise:[C.accent,"#e8f8f0"] };
+  const planColor = { Pro:[C.purple,"#2d1a4a"], Basic:[C.blue,"#1a2d3d"], Enterprise:[C.accent,"#0e3d38"] };
 
   return (
     <div>
@@ -2123,6 +2141,496 @@ function LiveChat() {
   );
 }
 
+// ─── CUSTOMER ACCOUNTS ───────────────────────────────────────────
+function CustomerAccounts() {
+  const [customers, setCustomers] = useState(getCustomers());
+  const [users, setUsers]         = useState(getUsers());
+  const [view, setView]           = useState("list");   // list | create | detail
+  const [selected, setSelected]   = useState(null);
+  const [saved, setSaved]         = useState(false);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(null);
+
+  const PLANS = ["Monthly","Quarterly","HalfYearly","Yearly"];
+  const PLAN_LABELS = { Monthly:"Monthly", Quarterly:"Quarterly (3 mo)", HalfYearly:"Half-Yearly (6 mo)", Yearly:"Yearly (12 mo)" };
+  const PLAN_DISCOUNT = { Monthly:0, Quarterly:10, HalfYearly:15, Yearly:20 };
+
+  const [form, setForm] = useState({
+    name:"", email:"", phone:"", company:"", plan:"Monthly",
+    price:"", status:"Active", notes:"", logo:null,
+  });
+  const [logoPreview, setLogoPreview] = useState(null);
+
+  const persist = (cs) => {
+    saveCustomers(cs); setCustomers(cs);
+    setSaved(true); setTimeout(()=>setSaved(false),2000);
+  };
+
+  const handleLogo = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setForm(prev=>({...prev, logo:ev.target.result})); setLogoPreview(ev.target.result); };
+    reader.readAsDataURL(f);
+  };
+
+  const createCustomer = () => {
+    if (!form.name || !form.email || !form.company) return alert("Name, email and company are required");
+    const now = new Date().toISOString();
+    const newCustomer = {
+      ...form,
+      id: Date.now(),
+      activatedAt: now,
+      expiresAt: computeExpiry(now, form.plan),
+      lastPayment: now,
+      users: [],
+      createdAt: now,
+    };
+    persist([...customers, newCustomer]);
+    setForm({ name:"", email:"", phone:"", company:"", plan:"Monthly", price:"", status:"Active", notes:"", logo:null });
+    setLogoPreview(null);
+    setView("list");
+  };
+
+  const toggleStatus = (customerId) => {
+    const customer = customers.find(c => c.id === customerId);
+    const newStatus = customer.status === "Active" ? "Inactive" : "Active";
+    const updatedCustomers = customers.map(c =>
+      c.id === customerId ? { ...c, status: newStatus } : c
+    );
+    persist(updatedCustomers);
+
+    // Cascade: deactivate/activate all linked users
+    const linkedUserIds = customer.users || [];
+    if (linkedUserIds.length > 0) {
+      const updatedUsers = users.map(u =>
+        linkedUserIds.includes(u.id)
+          ? { ...u, status: newStatus === "Inactive" ? "Inactive" : "Active" }
+          : u
+      );
+      saveUsers(updatedUsers);
+      setUsers(updatedUsers);
+    }
+    setConfirmDeactivate(null);
+  };
+
+  const removeCustomer = (id) => {
+    if (!window.confirm("Delete this customer account? Their users will be unlinked but not deleted.")) return;
+    // Unlink users
+    const updatedUsers = users.map(u => u.customerId === id ? { ...u, customerId: null } : u);
+    saveUsers(updatedUsers); setUsers(updatedUsers);
+    persist(customers.filter(c => c.id !== id));
+  };
+
+  const renewPlan = (customerId) => {
+    const customer = customers.find(c => c.id === customerId);
+    const now = new Date().toISOString();
+    const updatedCustomers = customers.map(c =>
+      c.id === customerId ? { ...c, activatedAt: now, expiresAt: computeExpiry(now, c.plan), lastPayment: now, status:"Active" } : c
+    );
+    persist(updatedCustomers);
+    // Reactivate linked users
+    const linkedUserIds = customer.users || [];
+    if (linkedUserIds.length > 0) {
+      const updatedUsers = users.map(u => linkedUserIds.includes(u.id) ? { ...u, status:"Active" } : u);
+      saveUsers(updatedUsers); setUsers(updatedUsers);
+    }
+  };
+
+  const updateCustomerLogo = (id, logoData) => {
+    persist(customers.map(c => c.id === id ? { ...c, logo: logoData } : c));
+  };
+
+  const activeCount   = customers.filter(c=>c.status==="Active").length;
+  const inactiveCount = customers.filter(c=>c.status==="Inactive").length;
+  const expiredCount  = customers.filter(c=>isExpired(c)).length;
+  const allUsers = customers.reduce((sum, c) => sum + (c.users?.length||0), 0);
+
+  // ── LIST VIEW ───────────────────────────────────────────────────
+  if (view === "list") return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <div>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Customer Accounts</h2>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Create and manage client accounts, billing plans and access</p>
+        </div>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {saved && <span style={{ fontSize:13, color:C.accent, fontWeight:600 }}>✅ Saved</span>}
+          <button style={btn()} onClick={()=>setView("create")}>+ New Customer</button>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:22 }}>
+        {[
+          { icon:"🏢", label:"Total Customers", value:customers.length, color:C.text },
+          { icon:"✅", label:"Active",          value:activeCount,      color:C.accent },
+          { icon:"⏸️", label:"Inactive",        value:inactiveCount,    color:C.yellow },
+          { icon:"👤", label:"Total Users",     value:allUsers,         color:C.blue },
+        ].map(s=>(
+          <div key={s.label} style={{ ...card }}>
+            <div style={{ fontSize:22, marginBottom:6 }}>{s.icon}</div>
+            <div style={{ fontSize:28, fontWeight:900, color:s.color }}>{s.value}</div>
+            <div style={{ fontSize:12, color:C.sub }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Expiry warnings */}
+      {customers.filter(c=>!isExpired(c) && (daysUntilExpiry(c)||99) <= 7 && c.status==="Active").map(c=>(
+        <div key={c.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", background:"#ffd16615", border:"1px solid #ffd16640", borderRadius:10, marginBottom:10, fontSize:13 }}>
+          <span style={{ fontSize:18 }}>⚠️</span>
+          <span><strong style={{ color:C.yellow }}>{c.company}</strong> expires in <strong>{daysUntilExpiry(c)} day(s)</strong></span>
+          <button onClick={()=>renewPlan(c.id)} style={{ ...btn(), padding:"5px 14px", fontSize:12, marginLeft:"auto" }}>Renew Now</button>
+        </div>
+      ))}
+      {expiredCount > 0 && customers.filter(c=>isExpired(c)).map(c=>(
+        <div key={c.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", background:"#ff5c7a15", border:"1px solid #ff5c7a40", borderRadius:10, marginBottom:10, fontSize:13 }}>
+          <span style={{ fontSize:18 }}>🔴</span>
+          <span><strong style={{ color:C.red }}>{c.company}</strong> subscription has <strong>expired</strong></span>
+          <button onClick={()=>renewPlan(c.id)} style={{ ...btn(), padding:"5px 14px", fontSize:12, marginLeft:"auto", background:C.gradRed }}>Renew & Reactivate</button>
+        </div>
+      ))}
+
+      {customers.length === 0 && (
+        <div style={{ ...card, textAlign:"center", padding:50 }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>🏢</div>
+          <h3 style={{ margin:"0 0 8px", fontSize:16 }}>No customer accounts yet</h3>
+          <p style={{ color:C.sub, margin:"0 0 20px", fontSize:13 }}>Create your first customer account to start selling</p>
+          <button style={btn()} onClick={()=>setView("create")}>+ Create First Customer</button>
+        </div>
+      )}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        {customers.map(c => {
+          const linkedUsers = users.filter(u => (c.users||[]).includes(u.id));
+          const expired = isExpired(c);
+          const days = daysUntilExpiry(c);
+          return (
+            <div key={c.id} style={{ ...card, border: expired ? `1px solid ${C.red}40` : c.status==="Inactive" ? `1px solid ${C.yellow}30` : `1px solid ${C.border}` }}>
+              <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
+                {/* Logo */}
+                <div style={{ position:"relative", flexShrink:0 }}>
+                  {c.logo
+                    ? <img src={c.logo} alt={c.company} style={{ width:52, height:52, borderRadius:12, objectFit:"cover", border:`2px solid ${C.border}` }} />
+                    : <div style={{ width:52, height:52, borderRadius:12, background:C.gradMain, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, fontWeight:900, color:"white", border:`2px solid ${C.accent}30` }}>{c.company[0]}</div>
+                  }
+                  <label title="Upload logo" style={{ position:"absolute", bottom:-4, right:-4, width:18, height:18, borderRadius:"50%", background:C.accent, border:`2px solid ${C.card}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:9 }}>
+                    📷<input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
+                      const f=e.target.files[0]; if(!f) return;
+                      const reader=new FileReader(); reader.onload=ev=>updateCustomerLogo(c.id,ev.target.result); reader.readAsDataURL(f);
+                    }} />
+                  </label>
+                </div>
+
+                {/* Info */}
+                <div style={{ flex:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                    <span style={{ fontWeight:800, fontSize:15 }}>{c.company}</span>
+                    <span style={pill(c.status==="Active"&&!expired ? C.accent : C.red, c.status==="Active"&&!expired ? "#0e3d38" : "#3d1018")}>
+                      {expired ? "Expired" : c.status}
+                    </span>
+                    <span style={pill(C.purple,"#2d1a4a")}>{PLAN_LABELS[c.plan]||c.plan}</span>
+                    {c.price && <span style={pill(C.green,"#0e3d2e")}>₹{c.price}</span>}
+                  </div>
+                  <div style={{ fontSize:12, color:C.sub, marginBottom:8 }}>
+                    {c.name} · {c.email}{c.phone ? ` · ${c.phone}` : ""}
+                  </div>
+                  <div style={{ display:"flex", gap:16, fontSize:12, color:C.sub, flexWrap:"wrap" }}>
+                    <span>📅 Activated: {c.activatedAt?.split("T")[0]}</span>
+                    <span style={{ color: expired ? C.red : days <= 7 ? C.yellow : C.sub }}>
+                      🗓️ Expires: {c.expiresAt?.split("T")[0]} {days !== null && !expired && `(${days}d)`}
+                    </span>
+                    <span>👤 {linkedUsers.length} user{linkedUsers.length!==1?"s":""}</span>
+                    {c.lastPayment && <span>💳 Last payment: {c.lastPayment?.split("T")[0]}</span>}
+                  </div>
+                  {linkedUsers.length > 0 && (
+                    <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
+                      {linkedUsers.map(u=>(
+                        <span key={u.id} style={{ ...pill(ROLE_COLORS[u.role]||C.sub, (ROLE_COLORS[u.role]||C.sub)+"20"), display:"flex", alignItems:"center", gap:4 }}>
+                          {u.logo ? <img src={u.logo} style={{ width:14, height:14, borderRadius:"50%", objectFit:"cover" }} alt="" /> : u.avatar}
+                          {u.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
+                  <button onClick={()=>{setSelected(c); setView("detail");}} style={{ ...btn("secondary"), fontSize:11, padding:"5px 12px" }}>View / Edit</button>
+                  <button onClick={()=>renewPlan(c.id)} style={{ ...btn("secondary"), fontSize:11, padding:"5px 12px", color:C.accent }}>🔄 Renew</button>
+                  {confirmDeactivate === c.id ? (
+                    <div style={{ display:"flex", gap:4 }}>
+                      <button onClick={()=>toggleStatus(c.id)} style={{ ...btn(), fontSize:10, padding:"4px 8px", background:C.gradRed }}>Confirm</button>
+                      <button onClick={()=>setConfirmDeactivate(null)} style={{ ...btn("ghost"), fontSize:10, padding:"4px 8px" }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={()=> c.status==="Active" ? setConfirmDeactivate(c.id) : toggleStatus(c.id)}
+                      style={{ ...btn("ghost"), fontSize:11, padding:"5px 12px", color: c.status==="Active" ? C.red : C.accent }}
+                    >
+                      {c.status==="Active" ? "Deactivate" : "Activate"}
+                    </button>
+                  )}
+                  <button onClick={()=>removeCustomer(c.id)} style={{ ...btn("ghost"), fontSize:11, padding:"5px 12px", color:C.sub }}>🗑 Delete</button>
+                </div>
+              </div>
+              {c.notes && <div style={{ marginTop:10, padding:"8px 12px", background:"#ffffff06", borderRadius:8, fontSize:12, color:C.sub, borderLeft:`3px solid ${C.accent}50` }}>📝 {c.notes}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── CREATE VIEW ──────────────────────────────────────────────────
+  if (view === "create") return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:22 }}>
+        <button style={btn("ghost")} onClick={()=>setView("list")}>← Back</button>
+        <div>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>New Customer Account</h2>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Fill in details to onboard a new client</p>
+        </div>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+        {/* Left col */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <div style={card}>
+            <h3 style={{ margin:"0 0 14px", fontSize:14, color:C.accent, fontWeight:700 }}>📇 Contact Information</h3>
+            {[
+              { label:"COMPANY NAME *", key:"company", ph:"e.g. Acme Pvt. Ltd." },
+              { label:"CONTACT NAME *", key:"name",    ph:"e.g. Rahul Sharma" },
+              { label:"EMAIL *",        key:"email",   ph:"contact@company.com", type:"email" },
+              { label:"PHONE",          key:"phone",   ph:"+91 98765 43210", type:"tel" },
+            ].map(f=>(
+              <div key={f.key} style={{ marginBottom:12 }}>
+                <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>{f.label}</label>
+                <input value={form[f.key]} onChange={e=>setForm({...form,[f.key]:e.target.value})}
+                  style={{ ...inp, marginTop:5 }} placeholder={f.ph} type={f.type||"text"} />
+              </div>
+            ))}
+            <div>
+              <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>NOTES</label>
+              <textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}
+                style={{ ...inp, marginTop:5, resize:"vertical", minHeight:70 }} placeholder="Internal notes about this customer..." />
+            </div>
+          </div>
+        </div>
+
+        {/* Right col */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <div style={card}>
+            <h3 style={{ margin:"0 0 14px", fontSize:14, color:C.accent, fontWeight:700 }}>💳 Billing & Plan</h3>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>BILLING TERM *</label>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:8 }}>
+                {PLANS.map(p=>(
+                  <button key={p} onClick={()=>setForm({...form,plan:p})}
+                    style={{ padding:"10px 12px", borderRadius:10, border:`2px solid ${form.plan===p ? C.accent : C.border}`,
+                      background: form.plan===p ? C.accentLight : "transparent", color: form.plan===p ? C.accent : C.sub,
+                      cursor:"pointer", fontSize:12, fontWeight:700, textAlign:"left", transition:"all 0.15s" }}>
+                    <div>{PLAN_LABELS[p]}</div>
+                    {PLAN_DISCOUNT[p]>0 && <div style={{ fontSize:10, color:C.green, marginTop:2 }}>Save {PLAN_DISCOUNT[p]}%</div>}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>PRICE (₹)</label>
+              <input value={form.price} onChange={e=>setForm({...form,price:e.target.value})}
+                style={{ ...inp, marginTop:5 }} placeholder="e.g. 2999" type="number" min="0" />
+              {form.plan && form.price && (
+                <div style={{ marginTop:6, fontSize:12, color:C.sub }}>
+                  Subscription: <strong style={{ color:C.accent }}>₹{form.price}/{form.plan.toLowerCase()}</strong>
+                  {" · "}Renews on: <strong>{computeExpiry(new Date().toISOString(), form.plan).split("T")[0]}</strong>
+                </div>
+              )}
+            </div>
+            <div>
+              <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>INITIAL STATUS</label>
+              <select value={form.status} onChange={e=>setForm({...form,status:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option value="Active">Active — Allow login immediately</option>
+                <option value="Inactive">Inactive — Block login until activated</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={card}>
+            <h3 style={{ margin:"0 0 14px", fontSize:14, color:C.accent, fontWeight:700 }}>🖼️ Company Logo</h3>
+            <div style={{ display:"flex", gap:14, alignItems:"center" }}>
+              {logoPreview
+                ? <img src={logoPreview} alt="logo" style={{ width:64, height:64, borderRadius:12, objectFit:"cover", border:`2px solid ${C.border}` }} />
+                : <div style={{ width:64, height:64, borderRadius:12, background:C.accentLight, border:`2px dashed ${C.accent}60`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🏢</div>
+              }
+              <div style={{ flex:1 }}>
+                <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>UPLOAD LOGO</label>
+                <input type="file" accept="image/*" onChange={handleLogo}
+                  style={{ ...inp, marginTop:5, padding:"8px 14px", cursor:"pointer" }} />
+                <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>PNG, JPG up to 2MB. Shown in the user's navbar.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display:"flex", gap:12, marginTop:20 }}>
+        <button style={{ ...btn(), padding:"12px 32px", fontSize:15 }} onClick={createCustomer}>🏢 Create Customer Account</button>
+        <button style={btn("ghost")} onClick={()=>setView("list")}>Cancel</button>
+      </div>
+    </div>
+  );
+
+  // ── DETAIL / EDIT VIEW ───────────────────────────────────────────
+  if (view === "detail" && selected) {
+    const c = customers.find(cx => cx.id === selected.id) || selected;
+    const linkedUsers = users.filter(u => (c.users||[]).includes(u.id));
+    const expired = isExpired(c);
+    const days = daysUntilExpiry(c);
+    const [editForm, setEditForm] = useState({ ...c });
+
+    const saveEdit = () => {
+      persist(customers.map(cx => cx.id === c.id ? { ...cx, ...editForm } : cx));
+      setView("list");
+    };
+
+    return (
+      <div>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:22 }}>
+          <button style={btn("ghost")} onClick={()=>setView("list")}>← Back</button>
+          <div style={{ flex:1 }}>
+            <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>{c.company}</h2>
+            <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Edit customer details and manage their subscription</p>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            {saved && <span style={{ fontSize:13, color:C.accent, fontWeight:600 }}>✅ Saved</span>}
+            <button style={{ ...btn(), background: c.status==="Active" ? C.gradRed : C.gradMain, padding:"8px 18px" }}
+              onClick={()=>toggleStatus(c.id)}>
+              {c.status==="Active" ? "⏸ Deactivate Account" : "✅ Activate Account"}
+            </button>
+          </div>
+        </div>
+
+        {/* Subscription alert */}
+        {expired && (
+          <div style={{ padding:"12px 16px", background:"#ff5c7a15", border:"1px solid #ff5c7a40", borderRadius:10, marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ color:C.red, fontWeight:600 }}>🔴 Subscription expired on {c.expiresAt?.split("T")[0]}</span>
+            <button onClick={()=>renewPlan(c.id)} style={{ ...btn(), background:C.gradRed, padding:"6px 16px", fontSize:12 }}>Renew Now</button>
+          </div>
+        )}
+        {!expired && days !== null && days <= 7 && (
+          <div style={{ padding:"12px 16px", background:"#ffd16615", border:"1px solid #ffd16640", borderRadius:10, marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ color:C.yellow, fontWeight:600 }}>⚠️ Expires in {days} day{days!==1?"s":""}  ({c.expiresAt?.split("T")[0]})</span>
+            <button onClick={()=>renewPlan(c.id)} style={{ ...btn(), padding:"6px 16px", fontSize:12 }}>Renew & Extend</button>
+          </div>
+        )}
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            <div style={card}>
+              <h3 style={{ margin:"0 0 14px", fontSize:14, color:C.accent, fontWeight:700 }}>📇 Contact Details</h3>
+              {[
+                { label:"COMPANY NAME", key:"company" },
+                { label:"CONTACT NAME", key:"name" },
+                { label:"EMAIL",        key:"email" },
+                { label:"PHONE",        key:"phone" },
+              ].map(f=>(
+                <div key={f.key} style={{ marginBottom:10 }}>
+                  <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>{f.label}</label>
+                  <input value={editForm[f.key]||""} onChange={e=>setEditForm({...editForm,[f.key]:e.target.value})}
+                    style={{ ...inp, marginTop:4 }} />
+                </div>
+              ))}
+              <div>
+                <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>NOTES</label>
+                <textarea value={editForm.notes||""} onChange={e=>setEditForm({...editForm,notes:e.target.value})}
+                  style={{ ...inp, marginTop:4, resize:"vertical", minHeight:60 }} />
+              </div>
+            </div>
+
+            <div style={card}>
+              <h3 style={{ margin:"0 0 14px", fontSize:14, color:C.accent, fontWeight:700 }}>👥 Linked Users ({linkedUsers.length})</h3>
+              {linkedUsers.length === 0
+                ? <p style={{ color:C.sub, fontSize:13 }}>No users linked yet. Add users from Users & Access → assign this customer.</p>
+                : linkedUsers.map(u=>(
+                  <div key={u.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+                    {u.logo
+                      ? <img src={u.logo} alt={u.name} style={{ width:32, height:32, borderRadius:8, objectFit:"cover" }} />
+                      : <div style={{ width:32, height:32, borderRadius:8, background:`linear-gradient(135deg,${u.color},${u.color}80)`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:700, fontSize:13 }}>{u.avatar}</div>
+                    }
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{u.name}</div>
+                      <div style={{ fontSize:11, color:C.sub }}>{u.email} · {u.role}</div>
+                    </div>
+                    <span style={pill(u.status==="Inactive"?C.red:C.accent, u.status==="Inactive"?"#3d1018":"#0e3d38")}>{u.status||"Active"}</span>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            <div style={card}>
+              <h3 style={{ margin:"0 0 14px", fontSize:14, color:C.accent, fontWeight:700 }}>💳 Billing Plan</h3>
+              <div style={{ marginBottom:12 }}>
+                <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>PLAN</label>
+                <select value={editForm.plan} onChange={e=>setEditForm({...editForm,plan:e.target.value})} style={{ ...inp, marginTop:4 }}>
+                  {PLANS.map(p=><option key={p} value={p}>{PLAN_LABELS[p]}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>PRICE (₹)</label>
+                <input value={editForm.price||""} onChange={e=>setEditForm({...editForm,price:e.target.value})} style={{ ...inp, marginTop:4 }} type="number" />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:14 }}>
+                {[
+                  { label:"Activated",    value: c.activatedAt?.split("T")[0] },
+                  { label:"Expires",      value: c.expiresAt?.split("T")[0],   color: expired?C.red:days<=7?C.yellow:null },
+                  { label:"Last Payment", value: c.lastPayment?.split("T")[0] },
+                  { label:"Days Left",    value: expired?"EXPIRED":(days!==null?`${days} days`:"—"), color:expired?C.red:days<=7?C.yellow:C.accent },
+                ].map(item=>(
+                  <div key={item.label} style={{ background:"#ffffff06", borderRadius:8, padding:"10px 12px" }}>
+                    <div style={{ fontSize:10, color:C.sub, fontWeight:700 }}>{item.label.toUpperCase()}</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:item.color||C.text, marginTop:2 }}>{item.value||"—"}</div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={()=>renewPlan(c.id)} style={{ ...btn(), width:"100%", marginTop:14 }}>🔄 Renew Subscription</button>
+            </div>
+
+            <div style={card}>
+              <h3 style={{ margin:"0 0 14px", fontSize:14, color:C.accent, fontWeight:700 }}>🖼️ Logo</h3>
+              <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+                {c.logo
+                  ? <img src={c.logo} alt="logo" style={{ width:56, height:56, borderRadius:10, objectFit:"cover", border:`2px solid ${C.border}` }} />
+                  : <div style={{ width:56, height:56, borderRadius:10, background:C.accentLight, border:`2px dashed ${C.accent}60`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🏢</div>
+                }
+                <div style={{ flex:1 }}>
+                  <input type="file" accept="image/*" onChange={e=>{
+                    const f=e.target.files[0]; if(!f) return;
+                    const reader=new FileReader(); reader.onload=ev=>{
+                      updateCustomerLogo(c.id, ev.target.result);
+                      setEditForm({...editForm,logo:ev.target.result});
+                    }; reader.readAsDataURL(f);
+                  }} style={{ ...inp, padding:"8px 14px", cursor:"pointer" }} />
+                  <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>This logo shows in the user's nav when they log in.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", gap:12, marginTop:20 }}>
+          <button style={{ ...btn(), padding:"12px 32px", fontSize:15 }} onClick={saveEdit}>💾 Save Changes</button>
+          <button style={btn("ghost")} onClick={()=>setView("list")}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function PageContent({ page }) {
   const map = {
     "dashboard":        <Dashboard />,
@@ -2142,6 +2650,7 @@ function PageContent({ page }) {
     "wa-api":           <WAAPI />,
     "integrations":     <Integrations />,
     "white-label":      <WhiteLabel />,
+    "customers":        <CustomerAccounts />,
     "users-list":       <UsersList />,
     "wa-group":         <Contacts />,
   };
@@ -2149,15 +2658,22 @@ function PageContent({ page }) {
 }
 
 // ─── AUTH SYSTEM ─────────────────────────────────────────────────
-const USERS_KEY = "thynkapp_users";
-const SESSION_KEY = "thynkapp_session";
+const USERS_KEY      = "thynkapp_users";
+const SESSION_KEY    = "thynkapp_session";
+const CUSTOMERS_KEY  = "thynkapp_customers";
+
+function getCustomers() {
+  const stored = localStorage.getItem(CUSTOMERS_KEY);
+  if (stored) return JSON.parse(stored);
+  return [];
+}
+function saveCustomers(customers) { localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers)); }
 
 function getUsers() {
   const stored = localStorage.getItem(USERS_KEY);
   if (stored) return JSON.parse(stored);
-  // Default admin user
   const defaults = [
-    { id:1, name:"Admin", email:"admin@thynkapp.com", password:"admin123", role:"admin", avatar:"A", color:"#1ab8a8", createdAt: new Date().toISOString() }
+    { id:1, name:"Admin", email:"admin@thynkapp.com", password:"admin123", role:"admin", avatar:"A", color:"#1ab8a8", createdAt: new Date().toISOString(), customerId: null, lastActive: new Date().toISOString() }
   ];
   localStorage.setItem(USERS_KEY, JSON.stringify(defaults));
   return defaults;
@@ -2166,6 +2682,23 @@ function saveUsers(users) { localStorage.setItem(USERS_KEY, JSON.stringify(users
 function getSession() { const s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; }
 function saveSession(user) { localStorage.setItem(SESSION_KEY, JSON.stringify(user)); }
 function clearSession() { localStorage.removeItem(SESSION_KEY); }
+
+// Compute expiry date for a plan from activation date
+function computeExpiry(activatedAt, plan) {
+  const d = new Date(activatedAt);
+  const add = { Monthly: 1, Quarterly: 3, HalfYearly: 6, Yearly: 12 };
+  d.setMonth(d.getMonth() + (add[plan] || 1));
+  return d.toISOString();
+}
+function isExpired(customer) {
+  if (!customer.expiresAt) return false;
+  return new Date(customer.expiresAt) < new Date();
+}
+function daysUntilExpiry(customer) {
+  if (!customer.expiresAt) return null;
+  const diff = new Date(customer.expiresAt) - new Date();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
 
 const ROLE_COLORS = { admin:"#c77dff", manager:"#4db8ff", agent:"#06d6a0", viewer:"#ffd166" };
 const AVATAR_COLORS = ["#1ab8a8","#c77dff","#4db8ff","#ff9f43","#ff5c7a","#06d6a0","#ffd166"];
@@ -2182,11 +2715,28 @@ function LoginPage({ onLogin }) {
     if (!email || !password) { setError("Please enter email and password"); return; }
     setLoading(true); setError("");
     setTimeout(() => {
-      const users = getUsers();
+      const users     = getUsers();
+      const customers = getCustomers();
       const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
       if (user) {
-        saveSession(user);
-        onLogin(user);
+        // Check if user has a customer account and if it's active
+        if (user.customerId) {
+          const customer = customers.find(c => c.id === user.customerId);
+          if (customer && customer.status === "Inactive") {
+            setError("Your account has been deactivated. Please contact support.");
+            setLoading(false); return;
+          }
+          if (customer && isExpired(customer)) {
+            setError("Your subscription has expired. Please renew to continue.");
+            setLoading(false); return;
+          }
+        }
+        // Update lastActive
+        const updatedUsers = users.map(u => u.id === user.id ? { ...u, lastActive: new Date().toISOString() } : u);
+        saveUsers(updatedUsers);
+        const updatedUser = { ...user, lastActive: new Date().toISOString() };
+        saveSession(updatedUser);
+        onLogin(updatedUser);
       } else {
         setError("Invalid email or password");
       }
@@ -2304,25 +2854,67 @@ function LoginPage({ onLogin }) {
 
 // ─── USER MANAGEMENT PAGE ─────────────────────────────────────────
 function UsersManager({ currentUser }) {
-  const [users, setUsers]     = useState(getUsers());
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm]       = useState({ name:"", email:"", password:"", role:"agent" });
-  const [saved, setSaved]     = useState(false);
+  const [users, setUsers]         = useState(getUsers());
+  const [customers, setCustomers] = useState(getCustomers());
+  const [showAdd, setShowAdd]     = useState(false);
+  const [form, setForm]           = useState({ name:"", email:"", password:"", role:"agent", customerId:"" });
+  const [saved, setSaved]         = useState(false);
+  const [logoFile, setLogoFile]   = useState(null);
+  const [logoPreview, setLogoPreview] = useState(null);
 
   const persist = (us) => { saveUsers(us); setUsers(us); setSaved(true); setTimeout(()=>setSaved(false),2000); };
+
+  const handleLogoChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => { setLogoFile(ev.target.result); setLogoPreview(ev.target.result); };
+    reader.readAsDataURL(file);
+  };
 
   const add = () => {
     if (!form.name || !form.email || !form.password) return alert("All fields required");
     if (users.find(u=>u.email.toLowerCase()===form.email.toLowerCase())) return alert("Email already exists");
     const color = AVATAR_COLORS[users.length % AVATAR_COLORS.length];
-    persist([...users, { ...form, id:Date.now(), avatar:form.name[0].toUpperCase(), color, createdAt:new Date().toISOString() }]);
-    setForm({ name:"", email:"", password:"", role:"agent" }); setShowAdd(false);
+    const newUser = {
+      ...form,
+      id: Date.now(),
+      avatar: form.name[0].toUpperCase(),
+      color,
+      createdAt: new Date().toISOString(),
+      lastActive: null,
+      logo: logoFile || null,
+      customerId: form.customerId ? parseInt(form.customerId) : null,
+    };
+    persist([...users, newUser]);
+    // Link user to customer
+    if (form.customerId) {
+      const updatedCustomers = customers.map(c =>
+        c.id === parseInt(form.customerId)
+          ? { ...c, users: [...(c.users||[]), newUser.id] }
+          : c
+      );
+      saveCustomers(updatedCustomers);
+      setCustomers(updatedCustomers);
+    }
+    setForm({ name:"", email:"", password:"", role:"agent", customerId:"" });
+    setLogoFile(null); setLogoPreview(null);
+    setShowAdd(false);
   };
 
   const remove = (id) => {
     if (id === currentUser.id) return alert("Cannot delete your own account");
     if (!window.confirm("Delete this user?")) return;
     persist(users.filter(u=>u.id!==id));
+  };
+
+  const toggleStatus = (id) => {
+    const u = users.find(u => u.id === id);
+    persist(users.map(u => u.id === id ? { ...u, status: u.status === "Inactive" ? "Active" : "Inactive" } : u));
+  };
+
+  const updateLogo = (userId, logoData) => {
+    persist(users.map(u => u.id === userId ? { ...u, logo: logoData } : u));
   };
 
   return (
@@ -2379,6 +2971,20 @@ function UsersManager({ currentUser }) {
                 <option value="viewer">Viewer — Read only</option>
               </select>
             </div>
+            <div>
+              <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>CUSTOMER ACCOUNT (Optional)</label>
+              <select value={form.customerId} onChange={e=>setForm({...form,customerId:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option value="">— No customer (platform admin) —</option>
+                {customers.filter(c=>c.status==="Active").map(c=>(
+                  <option key={c.id} value={c.id}>{c.company} ({c.name})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>USER LOGO (Optional)</label>
+              <input type="file" accept="image/*" onChange={handleLogoChange} style={{ ...inp, marginTop:5, padding:"8px 14px", cursor:"pointer" }} />
+              {logoPreview && <img src={logoPreview} alt="logo preview" style={{ width:40, height:40, borderRadius:8, objectFit:"cover", marginTop:6 }} />}
+            </div>
           </div>
           <div style={{ display:"flex", gap:10, marginTop:14 }}>
             <button style={btn()} onClick={add}>Create User</button>
@@ -2388,24 +2994,51 @@ function UsersManager({ currentUser }) {
       )}
 
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {users.map(u => (
-          <div key={u.id} style={{ ...card, display:"flex", alignItems:"center", gap:14 }}>
-            <div style={{ width:46, height:46, borderRadius:14, background:`linear-gradient(135deg,${u.color},${u.color}80)`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:900, fontSize:18, flexShrink:0, border:`2px solid ${u.color}40` }}>
-              {u.avatar}
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                <span style={{ fontWeight:700, fontSize:14 }}>{u.name}</span>
-                {u.id === currentUser.id && <span style={pill(C.accent,"#1ab8a820")}>You</span>}
-                <span style={pill(ROLE_COLORS[u.role]||C.sub, (ROLE_COLORS[u.role]||C.sub)+"20")}>{u.role}</span>
+        {users.map(u => {
+          const customer = u.customerId ? customers.find(c=>c.id===u.customerId) : null;
+          return (
+            <div key={u.id} style={{ ...card, display:"flex", alignItems:"center", gap:14 }}>
+              {/* Avatar / Logo */}
+              <div style={{ position:"relative", flexShrink:0 }}>
+                {u.logo
+                  ? <img src={u.logo} alt={u.name} style={{ width:46, height:46, borderRadius:14, objectFit:"cover", border:`2px solid ${u.color||C.accent}40` }} />
+                  : <div style={{ width:46, height:46, borderRadius:14, background:`linear-gradient(135deg,${u.color},${u.color}80)`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:900, fontSize:18, border:`2px solid ${u.color}40` }}>{u.avatar}</div>
+                }
+                {/* Logo upload button */}
+                <label title="Upload logo" style={{ position:"absolute", bottom:-4, right:-4, width:18, height:18, borderRadius:"50%", background:C.accent, border:`2px solid ${C.card}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:9 }}>
+                  📷
+                  <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
+                    const f = e.target.files[0]; if(!f) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => updateLogo(u.id, ev.target.result);
+                    reader.readAsDataURL(f);
+                  }} />
+                </label>
               </div>
-              <div style={{ fontSize:12, color:C.sub }}>{u.email} · Joined {u.createdAt?.split("T")[0]}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4, flexWrap:"wrap" }}>
+                  <span style={{ fontWeight:700, fontSize:14 }}>{u.name}</span>
+                  {u.id === currentUser.id && <span style={pill(C.accent,"#1ab8a820")}>You</span>}
+                  <span style={pill(ROLE_COLORS[u.role]||C.sub, (ROLE_COLORS[u.role]||C.sub)+"20")}>{u.role}</span>
+                  {u.status === "Inactive" && <span style={pill(C.red,"#ff5c7a20")}>Inactive</span>}
+                  {customer && <span style={pill(C.orange,"#ff9f4320")}>🏢 {customer.company}</span>}
+                </div>
+                <div style={{ fontSize:12, color:C.sub }}>
+                  {u.email} · Joined {u.createdAt?.split("T")[0]}
+                  {u.lastActive && ` · Last active: ${new Date(u.lastActive).toLocaleDateString()}`}
+                </div>
+              </div>
+              {currentUser.role === "admin" && u.id !== currentUser.id && (
+                <div style={{ display:"flex", gap:6 }}>
+                  <button onClick={()=>toggleStatus(u.id)} style={{ ...btn("secondary"), fontSize:11, padding:"5px 10px" }}>
+                    {u.status === "Inactive" ? "Activate" : "Deactivate"}
+                  </button>
+                  <button onClick={()=>remove(u.id)} style={{ ...btn("ghost"), color:C.red, fontSize:13, padding:"6px 12px" }}>🗑 Remove</button>
+                </div>
+              )}
             </div>
-            {currentUser.role === "admin" && u.id !== currentUser.id && (
-              <button onClick={()=>remove(u.id)} style={{ ...btn("ghost"), color:C.red, fontSize:13, padding:"6px 12px" }}>🗑 Remove</button>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -2417,12 +3050,18 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentUser, setCurrentUser]           = useState(() => getSession());
 
-  if (!currentUser) return <LoginPage onLogin={u => setCurrentUser(u)} />;
+  if (!currentUser) return <><GlobalStyles /><LoginPage onLogin={u => setCurrentUser(u)} /></>;
 
   const logout = () => { clearSession(); setCurrentUser(null); };
 
+  // Get customer logo if user belongs to a customer
+  const allCustomers = getCustomers();
+  const userCustomer = currentUser.customerId ? allCustomers.find(c => c.id === currentUser.customerId) : null;
+  const displayLogo  = currentUser.logo || (userCustomer?.logo) || null;
+
   return (
     <div style={{ display:"flex", height:"100vh", background:C.bg, fontFamily:"'Plus Jakarta Sans','DM Sans','Segoe UI',sans-serif", color:C.text, overflow:"hidden" }}>
+      <GlobalStyles />
       <div style={{ width:sidebarCollapsed?60:240, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", transition:"width 0.25s", overflow:"hidden", flexShrink:0 }}>
         <div style={{ padding:"16px 14px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
           <div style={{ width:40, height:40, borderRadius:12, overflow:"hidden", flexShrink:0, cursor:"pointer", border:`2px solid ${C.accent}40` }} onClick={()=>setSidebarCollapsed(!sidebarCollapsed)}>
@@ -2461,8 +3100,11 @@ export default function App() {
         {!sidebarCollapsed && (
           <div style={{ padding:"12px", borderTop:`1px solid ${C.border}` }}>
             <div style={{ background:"#ffffff08", borderRadius:12, padding:"10px 12px", border:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
-              <div style={{ width:34, height:34, borderRadius:10, background:`linear-gradient(135deg,${currentUser.color||C.accent},${currentUser.color||C.accent}80)`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:900, fontSize:15, flexShrink:0 }}>
-                {currentUser.avatar||currentUser.name?.[0]||"U"}
+              <div style={{ width:34, height:34, borderRadius:10, background:`linear-gradient(135deg,${currentUser.color||C.accent},${currentUser.color||C.accent}80)`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:900, fontSize:15, flexShrink:0, overflow:"hidden" }}>
+                {displayLogo
+                  ? <img src={displayLogo} alt="logo" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                  : (currentUser.avatar||currentUser.name?.[0]||"U")
+                }
               </div>
               <div style={{ flex:1, overflow:"hidden" }}>
                 <div style={{ fontSize:12, fontWeight:700, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{currentUser.name}</div>
@@ -2490,8 +3132,11 @@ export default function App() {
                 <div style={{ fontSize:12, fontWeight:700, color:C.text }}>{currentUser.name}</div>
                 <div style={{ fontSize:10, color:ROLE_COLORS[currentUser.role]||C.sub, fontWeight:600 }}>{currentUser.role}</div>
               </div>
-              <div style={{ width:36, height:36, borderRadius:"50%", background:`linear-gradient(135deg,${currentUser.color||C.accent},${currentUser.color||C.accent}80)`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, color:"white", fontSize:15, cursor:"pointer" }} onClick={logout} title="Logout">
-                {currentUser.avatar||currentUser.name?.[0]||"U"}
+              <div style={{ width:36, height:36, borderRadius:"50%", background:`linear-gradient(135deg,${currentUser.color||C.accent},${currentUser.color||C.accent}80)`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, color:"white", fontSize:15, cursor:"pointer", overflow:"hidden" }} onClick={logout} title="Logout">
+                {displayLogo
+                  ? <img src={displayLogo} alt="logo" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                  : (currentUser.avatar||currentUser.name?.[0]||"U")
+                }
               </div>
             </div>
           </div>
