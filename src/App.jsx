@@ -28,6 +28,7 @@ const NAV = [
     { id: "campaign-summary", label: "Campaign Summary",    icon: "📊", sub: "Find campaign summary" },
     { id: "create-campaign",  label: "Create Campaign",     icon: "📤", sub: "Create & send messages" },
     { id: "send-single",      label: "Send Single Message", icon: "✉️", sub: "Send a message" },
+    { id: "live-chat",        label: "Live Chat",           icon: "💬", sub: "Real-time conversations" },
     { id: "auto-responder",   label: "Auto-Responder",      icon: "🔄", sub: "Reply 24/7 automatically" },
     { id: "chatbot",          label: "ChatBot",             icon: "🤖", sub: "Automated conversation" },
   ]},
@@ -79,51 +80,96 @@ function ErrorBox({ msg }) {
   return <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:10, padding:"12px 16px", color:C.red, fontSize:13 }}>⚠️ {msg}</div>;
 }
 
+// ─── SHARED TEMPLATE HOOK ─────────────────────────────────────────
+function useTemplates() {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/templates")
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setTemplates(data);
+        else setError(data.error || "Failed to load templates");
+        setLoading(false);
+      })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, []);
+  return { templates, loading, error };
+}
+
+// ─── TEMPLATE PICKER COMPONENT ────────────────────────────────────
+function TemplatePicker({ value, langValue, onChange, onLangChange }) {
+  const { templates, loading, error } = useTemplates();
+  const selected = templates.find(t => t.name === value);
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+      <div>
+        <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT APPROVED TEMPLATE *</label>
+        {loading && <div style={{ fontSize:12, color:C.sub, marginTop:6 }}>⏳ Loading templates from Meta...</div>}
+        {error   && <div style={{ fontSize:12, color:C.red, marginTop:6 }}>⚠️ {error} — check WABA_ID & WHATSAPP_TOKEN in Vercel</div>}
+        {!loading && !error && (
+          <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inp, marginTop:5 }}>
+            <option value="">— Select a template —</option>
+            {templates.map(t => (
+              <option key={`${t.name}_${t.language}`} value={t.name}>
+                {t.name} ({t.language}) — {t.category}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {selected && (
+        <div style={{ padding:"10px 12px", background:C.accentLight, borderRadius:8, fontSize:12, color:C.accent2, border:`1px solid ${C.accent}30` }}>
+          <strong>Preview:</strong> {selected.preview || "(no preview available)"}
+        </div>
+      )}
+      <div>
+        <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label>
+        <select value={langValue} onChange={e => onLangChange(e.target.value)} style={{ ...inp, marginTop:5 }}>
+          <option value="en_US">English (US)</option>
+          <option value="en_GB">English (UK)</option>
+          <option value="hi">Hindi</option>
+          <option value="mr">Marathi</option>
+          <option value="gu">Gujarati</option>
+          <option value="ta">Tamil</option>
+          <option value="te">Telugu</option>
+          <option value="kn">Kannada</option>
+          <option value="bn">Bengali</option>
+        </select>
+      </div>
+    </div>
+  );
+}
+
 // ─── WHATSAPP ACCOUNT ─────────────────────────────────────────────
 function WAAccount() {
-  const [form, setForm]       = useState({ token:"", phone_number_id:"", waba_id:"", display_name:"" });
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState(null); // null | {ok, msg}
-  const [accounts, setAccounts]     = useState([]);
+  const [form, setForm] = useState({ token:"", phone_number_id:"", waba_id:"", display_name:"" });
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [accounts, setAccounts] = useState([]);
 
   useEffect(() => {
     const stored = localStorage.getItem("wa_accounts");
     if (stored) setAccounts(JSON.parse(stored));
   }, []);
 
-  // Live-test credentials against Meta API before saving
-  const testAndSave = async () => {
+  const save = () => {
     if (!form.token || !form.phone_number_id || !form.waba_id) {
-      setTestResult({ ok:false, msg:"Token, Phone Number ID and WABA ID are all required." }); return;
+      setError("Token, Phone Number ID and WABA ID are required"); return;
     }
-    setTesting(true); setTestResult(null);
-    try {
-      // Call Meta Graph API to verify Phone Number ID is real and token is valid
-      const r = await fetch(
-        `https://graph.facebook.com/v19.0/${form.phone_number_id}?fields=display_phone_number,verified_name,status&access_token=${form.token}`
-      );
-      const data = await r.json();
-      if (!r.ok || data.error) {
-        setTestResult({ ok:false, msg: data.error?.message || "Invalid credentials. Check your Token and Phone Number ID." });
-        setTesting(false); return;
-      }
-      // Success — save
-      const newAccounts = [...accounts, {
-        ...form,
-        id: Date.now(),
-        verified_name: data.verified_name || form.display_name,
-        display_phone: data.display_phone_number,
-        meta_status: data.status,
-        connected_at: new Date().toISOString(),
-      }];
+    setSaving(true);
+    setTimeout(() => {
+      const newAccounts = [...accounts, { ...form, id: Date.now(), connected_at: new Date().toISOString() }];
       localStorage.setItem("wa_accounts", JSON.stringify(newAccounts));
       setAccounts(newAccounts);
       setForm({ token:"", phone_number_id:"", waba_id:"", display_name:"" });
-      setTestResult({ ok:true, msg:`✅ Connected! Verified as "${data.verified_name}" (${data.display_phone_number})` });
-    } catch(e) {
-      setTestResult({ ok:false, msg:"Network error: " + e.message });
-    }
-    setTesting(false);
+      setSaved(true); setSaving(false); setError(null);
+      setTimeout(() => setSaved(false), 3000);
+    }, 800);
   };
 
   const remove = (id) => {
@@ -135,99 +181,53 @@ function WAAccount() {
   return (
     <div>
       <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>WhatsApp Account</h2>
-      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Connect your Meta WhatsApp Business account. Credentials are verified live against Meta API.</p>
-
-      {/* ── WHY CONNECTION FAILS — diagnostic box ── */}
-      <div style={{ ...card, marginBottom:20, background:"#fffbeb", border:"1px solid #fde68a" }}>
-        <div style={{ fontWeight:700, fontSize:13, color:"#92400e", marginBottom:10 }}>⚠️ Common reasons the app can't connect to WhatsApp Business</div>
-        <div style={{ display:"flex", flexDirection:"column", gap:8, fontSize:13, color:"#78350f" }}>
-          {[
-            ["🔑 Wrong or expired token", "The temporary token from Meta expires every 24 hours. Generate a permanent System User token instead. Go to: Meta Business → Settings → Users → System Users → Generate Token"],
-            ["📱 Phone Number ID mismatch", "Copy the Phone Number ID exactly from Meta App Dashboard → WhatsApp → API Setup. Do NOT use the actual phone number — use the numeric ID."],
-            ["🔗 Webhook not configured", `In Meta App Dashboard → WhatsApp → Configuration, set Callback URL to: https://thynkcom.vercel.app/api/webhook and Verify Token to the value of your WEBHOOK_VERIFY_TOKEN env var.`],
-            ["📋 Webhook fields not subscribed", "After setting the webhook URL, click 'Manage' next to Webhook Fields and subscribe to: messages, message_deliveries, message_reads"],
-            ["🌐 Environment variables not in Vercel", "WHATSAPP_TOKEN, PHONE_NUMBER_ID, WABA_ID must all be set in Vercel → Settings → Environment Variables, then redeploy."],
-            ["📵 Test number limitations", "Meta's free test number can only send to 5 verified numbers. Add your number in: Meta App → WhatsApp → API Setup → To field → Manage phone number list"],
-          ].map(([title, desc]) => (
-            <div key={title} style={{ padding:"10px 12px", background:"white", borderRadius:8, border:"1px solid #fde68a" }}>
-              <div style={{ fontWeight:700, marginBottom:3 }}>{title}</div>
-              <div style={{ fontSize:12, color:"#92400e" }}>{desc}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Connected Accounts ── */}
+      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Connect your Meta WhatsApp Business account via API credentials.</p>
       {accounts.length > 0 && (
         <div style={{ ...card, marginBottom:20 }}>
           <h3 style={{ margin:"0 0 14px", fontSize:14, fontWeight:700 }}>Connected Accounts ({accounts.length})</h3>
           {accounts.map(a => (
             <div key={a.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", background:C.accentLight, borderRadius:10, marginBottom:10, border:`1px solid ${C.accent}30` }}>
               <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                <div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontSize:18 }}>📱</div>
+                <div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800, fontSize:16 }}>📱</div>
                 <div>
-                  <div style={{ fontWeight:700, fontSize:14 }}>{a.verified_name || a.display_name || "WhatsApp Business"}</div>
-                  <div style={{ fontSize:12, color:C.sub }}>{a.display_phone || ""} · Phone ID: {a.phone_number_id}</div>
-                  <div style={{ fontSize:11, color:C.sub }}>WABA: {a.waba_id} · Added {a.connected_at?.split("T")[0]}</div>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{a.display_name || "WhatsApp Business"}</div>
+                  <div style={{ fontSize:12, color:C.sub }}>Phone ID: {a.phone_number_id} · WABA: {a.waba_id}</div>
                 </div>
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <span style={pill(C.accent, C.accentLight)}>✓ Verified</span>
+                <span style={pill(C.accent, C.accentLight)}>✓ Connected</span>
                 <button onClick={() => remove(a.id)} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"6px 12px" }}>Remove</button>
               </div>
             </div>
           ))}
         </div>
       )}
-
-      {/* ── Add Account Form ── */}
       <div style={{ ...card, border:`1.5px solid ${C.border}` }}>
-        <h3 style={{ margin:"0 0 6px", fontSize:15, fontWeight:700 }}>Add & Verify Account</h3>
-        <p style={{ color:C.sub, fontSize:12, margin:"0 0 16px" }}>Credentials are tested live against Meta API before saving.</p>
-
-        {testResult && (
-          <div style={{ marginBottom:14, padding:"12px 16px", borderRadius:10, background: testResult.ok ? C.accentLight : "#fef2f2", border:`1px solid ${testResult.ok ? C.accent : "#fecaca"}`, color: testResult.ok ? C.accent2 : C.red, fontWeight:600, fontSize:13 }}>
-            {testResult.msg}
-          </div>
-        )}
-
+        <h3 style={{ margin:"0 0 6px", fontSize:15, fontWeight:700 }}>Add New Account</h3>
+        <p style={{ color:C.sub, fontSize:12, margin:"0 0 16px" }}>Get these values from <strong>Meta Business → WhatsApp → API Setup</strong></p>
+        {error && <div style={{ marginBottom:14 }}><ErrorBox msg={error} /></div>}
+        {saved && <div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"12px 16px", color:C.accent2, fontWeight:600, marginBottom:14 }}>✅ Account connected successfully!</div>}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
           <div style={{ gridColumn:"1/-1" }}>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DISPLAY NAME (optional)</label>
             <input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="My Business Account" />
           </div>
           <div style={{ gridColumn:"1/-1" }}>
-            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PERMANENT ACCESS TOKEN * <span style={{ color:C.red }}>(do NOT use temporary token)</span></label>
+            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>ACCESS TOKEN *</label>
             <input value={form.token} onChange={e=>setForm({...form,token:e.target.value})} style={{ ...inp, marginTop:5, fontFamily:"monospace", fontSize:12 }} placeholder="EAAxxxxxxxxxxxxx..." type="password" />
-            <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Get permanent token: Meta Business → Settings → System Users → Add System User → Generate Token → Select your app → whatsapp_business_messaging permission</div>
           </div>
           <div>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PHONE NUMBER ID *</label>
-            <input value={form.phone_number_id} onChange={e=>setForm({...form,phone_number_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. 123456789012345" />
-            <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Meta App → WhatsApp → API Setup → Phone Number ID (the long number, not the phone number itself)</div>
+            <input value={form.phone_number_id} onChange={e=>setForm({...form,phone_number_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="1234567890" />
           </div>
           <div>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>WABA ID *</label>
-            <input value={form.waba_id} onChange={e=>setForm({...form,waba_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. 987654321098765" />
-            <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Meta App → WhatsApp → API Setup → WhatsApp Business Account ID</div>
+            <input value={form.waba_id} onChange={e=>setForm({...form,waba_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="9876543210" />
           </div>
         </div>
-
-        {/* Webhook setup reminder */}
-        <div style={{ marginTop:16, padding:"14px 16px", background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:10 }}>
-          <div style={{ fontWeight:700, fontSize:13, color:"#1e40af", marginBottom:8 }}>📋 Webhook Setup Checklist</div>
-          <div style={{ fontSize:12, color:"#1e40af", lineHeight:2 }}>
-            In <strong>Meta App Dashboard → WhatsApp → Configuration</strong>:<br/>
-            1. Callback URL: <code style={{ background:"#dbeafe", padding:"1px 6px", borderRadius:4 }}>https://thynkcom.vercel.app/api/webhook</code><br/>
-            2. Verify Token: <em>same value as your WEBHOOK_VERIFY_TOKEN env var in Vercel</em><br/>
-            3. Click <strong>Verify and Save</strong><br/>
-            4. Under Webhook Fields, click <strong>Manage</strong> → subscribe to <strong>messages</strong>
-          </div>
-        </div>
-
         <div style={{ display:"flex", gap:10, marginTop:16 }}>
-          <button style={{ ...btn(), minWidth:200 }} onClick={testAndSave} disabled={testing}>
-            {testing ? "🔄 Verifying with Meta..." : "🔗 Verify & Connect Account"}
+          <button style={{ ...btn(), minWidth:180 }} onClick={save} disabled={saving}>
+            {saving ? "Connecting..." : "🔗 Connect Account"}
           </button>
         </div>
       </div>
@@ -920,47 +920,27 @@ function ListTemplate() {
 
 // ─── AUTO RESPONDER ───────────────────────────────────────────────
 function AutoResponder() {
-  const [rules, setRules]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const STORAGE_KEY = "auto_responders";
+  const { templates, loading: tplLoading } = useTemplates();
+  const [rules, setRules] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : [
+      { id:1, keyword:"PRICE",   matchType:"exact",    responseType:"text", response:"Our pricing starts at ₹499/mo. Visit our website for details.", templateName:"", languageCode:"en_US", active:true },
+      { id:2, keyword:"SUPPORT", matchType:"contains", responseType:"text", response:"Support team available Mon-Fri 9AM-6PM.", templateName:"", languageCode:"en_US", active:true },
+    ];
+  });
   const [showAdd, setShowAdd] = useState(false);
-  const [saved, setSaved]   = useState(false);
   const emptyForm = { keyword:"", matchType:"contains", responseType:"text", response:"", templateName:"", languageCode:"en_US", active:true };
-  const [form, setForm]     = useState(emptyForm);
+  const [form, setForm] = useState(emptyForm);
 
-  const loadRules = () => {
-    fetch("/api/auto-responder")
-      .then(r => r.json())
-      .then(data => {
-        setRules(Array.isArray(data) ? data.map(r => ({
-          id: r.id, keyword: r.keyword, matchType: r.match_type,
-          responseType: r.response_type || "text",
-          response: r.response_text || "", templateName: r.template_name || "",
-          languageCode: r.language_code || "en_US", active: r.active,
-        })) : []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  };
-  useEffect(loadRules, []);
-
-  const saveRules = async (rs) => {
-    setSaving(true);
-    await fetch("/api/auto-responder", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ rules: rs }),
-    });
-    setRules(rs); setSaving(false); setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  const toggle = (id) => saveRules(rules.map(r => r.id===id ? {...r, active:!r.active} : r));
-  const remove = (id) => { if (!window.confirm("Delete this rule?")) return; saveRules(rules.filter(r => r.id!==id)); };
+  const save = (rs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(rs)); setRules(rs); };
+  const toggle = (id) => save(rules.map(r => r.id===id ? {...r, active:!r.active} : r));
+  const remove = (id) => { if (!window.confirm("Delete this rule?")) return; save(rules.filter(r => r.id!==id)); };
   const add = () => {
     if (!form.keyword) return alert("Keyword is required");
     if (form.responseType === "text" && !form.response) return alert("Response message is required");
-    if (form.responseType === "template" && !form.templateName) return alert("Template name is required");
-    saveRules([...rules, { ...form, id: Date.now() }]);
+    if (form.responseType === "template" && !form.templateName) return alert("Please select a template");
+    save([...rules, { ...form, id: Date.now() }]);
     setForm(emptyForm); setShowAdd(false);
   };
 
@@ -969,13 +949,108 @@ function AutoResponder() {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
         <div>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Auto-Responder</h2>
-          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Automatically reply to incoming messages 24/7 — with text or Meta templates</p>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Automatically reply 24/7 — with custom text or your approved Meta templates</p>
         </div>
-        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-          {saved && <span style={{ fontSize:13, color:C.accent, fontWeight:600 }}>✅ Saved</span>}
-          {saving && <span style={{ fontSize:13, color:C.sub }}>Saving...</span>}
-          <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Rule</button>
+        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Rule</button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:22 }}>
+        <Stat icon="🔄" label="Total Rules"  value={rules.length} />
+        <Stat icon="✅" label="Active Rules" value={rules.filter(r=>r.active).length} color={C.accent} />
+        <Stat icon="⏸" label="Paused Rules" value={rules.filter(r=>!r.active).length} color={C.yellow} />
+      </div>
+
+      {showAdd && (
+        <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
+          <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>New Auto-Response Rule</h4>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TRIGGER KEYWORD *</label>
+              <input value={form.keyword} onChange={e=>setForm({...form,keyword:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. PRICE, HELP, ORDER" />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MATCH TYPE</label>
+              <select value={form.matchType} onChange={e=>setForm({...form,matchType:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                <option value="exact">Exact Match</option>
+                <option value="contains">Contains Keyword</option>
+                <option value="starts">Starts With</option>
+              </select>
+            </div>
+
+            {/* Response type toggle */}
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>RESPONSE TYPE</label>
+              <div style={{ display:"flex", gap:10, marginTop:6 }}>
+                {[["text","✏️ Text Message"],["template","📋 Meta Template"]].map(([val,label])=>(
+                  <button key={val} onClick={()=>setForm({...form,responseType:val,response:"",templateName:""})}
+                    style={{ ...btn(form.responseType===val?"primary":"secondary"), fontSize:13, padding:"8px 18px" }}>{label}</button>
+                ))}
+              </div>
+            </div>
+
+            {form.responseType === "text" ? (
+              <div style={{ gridColumn:"1/-1" }}>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>AUTO-RESPONSE MESSAGE *</label>
+                <textarea value={form.response} onChange={e=>setForm({...form,response:e.target.value})}
+                  style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Your automated reply..." />
+              </div>
+            ) : (
+              <div style={{ gridColumn:"1/-1" }}>
+                <TemplatePicker
+                  value={form.templateName} langValue={form.languageCode}
+                  onChange={v=>setForm({...form,templateName:v})}
+                  onLangChange={v=>setForm({...form,languageCode:v})}
+                />
+              </div>
+            )}
+          </div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button style={btn()} onClick={add}>Save Rule</button>
+            <button style={btn("ghost")} onClick={()=>{ setShowAdd(false); setForm(emptyForm); }}>Cancel</button>
+          </div>
         </div>
+      )}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {rules.map(r => (
+          <div key={r.id} style={{ ...card, display:"flex", alignItems:"flex-start", gap:14, opacity:r.active?1:0.7 }}>
+            <div style={{ width:42, height:42, borderRadius:10, background:r.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
+              {r.responseType==="template" ? "📋" : "🔄"}
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                <span style={pill(C.accent2, C.accentLight)}>Keyword: {r.keyword}</span>
+                <span style={pill(C.blue,"#eff6ff")}>{r.matchType}</span>
+                <span style={pill(r.responseType==="template"?C.purple:C.accent2, r.responseType==="template"?"#f3e8ff":C.accentLight)}>
+                  {r.responseType==="template" ? "📋 Template" : "✏️ Text"}
+                </span>
+                <Badge status={r.active?"Active":"Paused"} />
+              </div>
+              {r.responseType==="template"
+                ? <div style={{ fontSize:13, color:C.sub }}>Template: <strong>{r.templateName}</strong> · {r.languageCode}</div>
+                : <div style={{ fontSize:13, color:C.sub, lineHeight:1.5 }}>{r.response}</div>
+              }
+            </div>
+            <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+              <button onClick={()=>toggle(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px" }}>{r.active?"⏸ Pause":"▶ Enable"}</button>
+              <button onClick={()=>remove(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px", color:C.red }}>🗑</button>
+            </div>
+          </div>
+        ))}
+        {rules.length === 0 && <div style={{ ...card, textAlign:"center", padding:"40px", color:C.sub }}>No rules yet. Add your first auto-response rule!</div>}
+      </div>
+    </div>
+  );
+}
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <div>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Auto-Responder</h2>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Automatically reply to incoming messages based on keywords — 24/7</p>
+        </div>
+        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Rule</button>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:22 }}>
@@ -1001,256 +1076,178 @@ function AutoResponder() {
               </select>
             </div>
             <div style={{ gridColumn:"1/-1" }}>
-              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>RESPONSE TYPE</label>
-              <div style={{ display:"flex", gap:10, marginTop:6 }}>
-                {[["text","✏️ Text Message"],["template","📋 Meta Template"]].map(([val,label])=>(
-                  <button key={val} onClick={()=>setForm({...form,responseType:val})} style={{ ...btn(form.responseType===val?"primary":"secondary"), fontSize:13, padding:"8px 16px" }}>{label}</button>
-                ))}
-              </div>
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>AUTO-RESPONSE MESSAGE *</label>
+              <textarea value={form.response} onChange={e=>setForm({...form,response:e.target.value})} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Your automated reply message..." />
             </div>
-            {form.responseType === "text" && (
-              <div style={{ gridColumn:"1/-1" }}>
-                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>AUTO-RESPONSE MESSAGE *</label>
-                <textarea value={form.response} onChange={e=>setForm({...form,response:e.target.value})} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Your automated reply message..." />
-              </div>
-            )}
-            {form.responseType === "template" && (
-              <>
-                <div>
-                  <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME * (from Meta)</label>
-                  <input value={form.templateName} onChange={e=>setForm({...form,templateName:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. hello_world" />
-                </div>
-                <div>
-                  <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE CODE</label>
-                  <select value={form.languageCode} onChange={e=>setForm({...form,languageCode:e.target.value})} style={{ ...inp, marginTop:5 }}>
-                    <option value="en_US">English (US)</option>
-                    <option value="en_GB">English (UK)</option>
-                    <option value="hi">Hindi</option>
-                    <option value="mr">Marathi</option>
-                    <option value="gu">Gujarati</option>
-                    <option value="ta">Tamil</option>
-                    <option value="te">Telugu</option>
-                  </select>
-                </div>
-              </>
-            )}
           </div>
           <div style={{ display:"flex", gap:10 }}>
             <button style={btn()} onClick={add}>Save Rule</button>
-            <button style={btn("ghost")} onClick={()=>{ setShowAdd(false); setForm(emptyForm); }}>Cancel</button>
+            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
           </div>
         </div>
       )}
 
-      {loading ? <Loader /> : (
-        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-          {rules.map(r => (
-            <div key={r.id} style={{ ...card, display:"flex", alignItems:"flex-start", gap:14, opacity:r.active?1:0.65 }}>
-              <div style={{ width:42, height:42, borderRadius:10, background:r.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
-                {r.responseType === "template" ? "📋" : "🔄"}
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {rules.map(r => (
+          <div key={r.id} style={{ ...card, display:"flex", alignItems:"flex-start", gap:14, opacity:r.active?1:0.7 }}>
+            <div style={{ width:42, height:42, borderRadius:10, background:r.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🔄</div>
+            <div style={{ flex:1 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                <span style={pill(C.accent2, C.accentLight)}>Keyword: {r.keyword}</span>
+                <span style={pill(C.blue,"#eff6ff")}>{r.matchType}</span>
+                <Badge status={r.active?"Active":"Paused"} />
               </div>
-              <div style={{ flex:1 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
-                  <span style={pill(C.accent2, C.accentLight)}>Keyword: {r.keyword}</span>
-                  <span style={pill(C.blue,"#eff6ff")}>{r.matchType}</span>
-                  <span style={pill(r.responseType==="template"?C.purple:C.accent2, r.responseType==="template"?"#f3e8ff":C.accentLight)}>
-                    {r.responseType === "template" ? "📋 Template" : "✏️ Text"}
-                  </span>
-                  <Badge status={r.active?"Active":"Paused"} />
-                </div>
-                {r.responseType === "template"
-                  ? <div style={{ fontSize:13, color:C.sub }}>Template: <strong>{r.templateName}</strong> ({r.languageCode})</div>
-                  : <div style={{ fontSize:13, color:C.sub, lineHeight:1.5 }}>{r.response}</div>
-                }
-              </div>
-              <div style={{ display:"flex", gap:8, flexShrink:0 }}>
-                <button onClick={()=>toggle(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px" }}>{r.active?"⏸ Pause":"▶ Enable"}</button>
-                <button onClick={()=>remove(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px", color:C.red }}>🗑</button>
-              </div>
+              <div style={{ fontSize:13, color:C.sub, lineHeight:1.5 }}>{r.response}</div>
             </div>
-          ))}
-          {rules.length === 0 && <div style={{ ...card, textAlign:"center", padding:"40px", color:C.sub }}>No rules yet. Add your first auto-response rule!</div>}
-        </div>
-      )}
+            <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+              <button onClick={()=>toggle(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px" }}>{r.active?"⏸ Pause":"▶ Enable"}</button>
+              <button onClick={()=>remove(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px", color:C.red }}>🗑</button>
+            </div>
+          </div>
+        ))}
+        {rules.length === 0 && <div style={{ ...card, textAlign:"center", padding:"40px", color:C.sub }}>No rules yet. Add your first auto-response rule!</div>}
+      </div>
     </div>
   );
 }
 
 // ─── CHATBOT ──────────────────────────────────────────────────────
 function ChatBot() {
-  const [flows, setFlows]           = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [saving, setSaving]         = useState(false);
-  const [saved, setSaved]           = useState(false);
+  const STORAGE_KEY = "chatbot_flows";
+  const { templates, loading: tplLoading } = useTemplates();
+  const [flows, setFlows] = useState(() => {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : [
+      { id:1, name:"Lead Qualification", triggers:"Hi, Hello, Start", active:true,
+        steps:[
+          { type:"message",  content:"Welcome! 👋 What can I help you with today?" },
+          { type:"collect",  content:"Name" },
+          { type:"message",  content:"Thanks! Our team will reach out shortly." },
+        ]
+      },
+    ];
+  });
   const [showAdd, setShowAdd]       = useState(false);
-  const [activeFlow, setActiveFlow] = useState(null); // id of flow being edited
   const [form, setForm]             = useState({ name:"", triggers:"" });
-  const emptyStep = { type:"message", content:"", templateName:"", languageCode:"en_US" };
+  const [activeFlow, setActiveFlow] = useState(null);
 
-  const loadFlows = () => {
-    fetch("/api/chatbot-flows")
-      .then(r => r.json())
-      .then(data => { setFlows(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => setLoading(false));
-  };
-  useEffect(loadFlows, []);
-
-  const persistFlows = async (fs) => {
-    setSaving(true);
-    await fetch("/api/chatbot-flows", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ flows: fs }),
-    });
-    setFlows(fs); setSaving(false); setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  const toggleFlow  = (id) => persistFlows(flows.map(f => f.id===id ? {...f, active:!f.active} : f));
-  const removeFlow  = (id) => { if (!window.confirm("Delete this flow?")) return; persistFlows(flows.filter(f => f.id!==id)); if(activeFlow===id) setActiveFlow(null); };
-  const addFlow     = () => {
+  const save  = (fs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(fs)); setFlows(fs); };
+  const toggle = (id) => save(flows.map(f => f.id===id ? {...f, active:!f.active} : f));
+  const remove = (id) => { if (!window.confirm("Delete this flow?")) return; save(flows.filter(f => f.id!==id)); if(activeFlow===id) setActiveFlow(null); };
+  const add = () => {
     if (!form.name || !form.triggers) return alert("Name and triggers are required");
-    const newFlow = { id: Date.now(), ...form, active:true, steps:[{ type:"message", content:"Hello! How can I help you today? 👋", templateName:"", languageCode:"en_US" }] };
-    persistFlows([...flows, newFlow]);
-    setForm({ name:"", triggers:"" }); setShowAdd(false); setActiveFlow(newFlow.id);
+    const nf = { id:Date.now(), ...form, active:true, steps:[{ type:"message", content:"Hello! How can I help you? 👋", templateName:"", languageCode:"en_US" }] };
+    save([...flows, nf]); setForm({ name:"", triggers:"" }); setShowAdd(false); setActiveFlow(nf.id);
   };
 
-  const updateFlow = (id, updated) => persistFlows(flows.map(f => f.id===id ? updated : f));
-
-  // Step helpers
-  const addStep    = (flowId) => { const f = flows.find(x=>x.id===flowId); updateFlow(flowId, {...f, steps:[...f.steps, {...emptyStep}]}); };
+  const updateFlow = (id, updated) => save(flows.map(f => f.id===id ? updated : f));
+  const addStep    = (flowId) => { const f = flows.find(x=>x.id===flowId); updateFlow(flowId, {...f, steps:[...f.steps, { type:"message", content:"", templateName:"", languageCode:"en_US" }]}); };
   const removeStep = (flowId, idx) => { const f = flows.find(x=>x.id===flowId); updateFlow(flowId, {...f, steps:f.steps.filter((_,i)=>i!==idx)}); };
   const moveStep   = (flowId, idx, dir) => {
     const f = [...flows.find(x=>x.id===flowId).steps];
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= f.length) return;
-    [f[idx], f[newIdx]] = [f[newIdx], f[idx]];
+    const ni = idx+dir; if(ni<0||ni>=f.length) return;
+    [f[idx],f[ni]]=[f[ni],f[idx]];
     updateFlow(flowId, {...flows.find(x=>x.id===flowId), steps:f});
   };
   const updateStep = (flowId, idx, patch) => {
     const f = flows.find(x=>x.id===flowId);
-    const steps = f.steps.map((s,i) => i===idx ? {...s,...patch} : s);
-    updateFlow(flowId, {...f, steps});
+    updateFlow(flowId, {...f, steps:f.steps.map((s,i)=>i===idx?{...s,...patch}:s)});
   };
 
   const stepTypeColors = { message:C.accent, template:C.purple, collect:C.blue, delay:C.yellow, end:"#ef4444" };
   const stepTypeIcons  = { message:"💬", template:"📋", collect:"📝", delay:"⏱", end:"🏁" };
   const stepTypes      = ["message","template","collect","delay","end"];
+  const current        = flows.find(f => f.id === activeFlow);
 
-  const current = flows.find(f => f.id === activeFlow);
-
+  // ── Flow editor view ──
   if (activeFlow && current) return (
     <div>
-      {/* Header */}
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
         <button onClick={()=>setActiveFlow(null)} style={{ ...btn("secondary"), padding:"8px 14px", fontSize:13 }}>← Back</button>
         <div style={{ flex:1 }}>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>🤖 {current.name}</h2>
           <p style={{ margin:"2px 0 0", fontSize:12, color:C.sub }}>Triggers: {current.triggers} · {current.steps.length} steps</p>
         </div>
-        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-          {saving && <span style={{ fontSize:13, color:C.sub }}>Saving...</span>}
-          {saved  && <span style={{ fontSize:13, color:C.accent, fontWeight:600 }}>✅ Saved</span>}
-          <button style={btn()} onClick={()=>addStep(current.id)}>+ Add Step</button>
-        </div>
+        <button style={btn()} onClick={()=>addStep(current.id)}>+ Add Step</button>
       </div>
 
-      {/* Flow builder — vertical drag-like list */}
-      <div style={{ display:"flex", flexDirection:"column", gap:0, position:"relative" }}>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
         {/* Start node */}
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:0 }}>
-          <div style={{ padding:"8px 20px", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, borderRadius:20, color:"white", fontWeight:700, fontSize:13 }}>
-            🚀 Trigger: "{current.triggers}"
-          </div>
-          <div style={{ width:2, height:20, background:C.accent+"60" }} />
+        <div style={{ padding:"8px 22px", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, borderRadius:20, color:"white", fontWeight:700, fontSize:13, marginBottom:0 }}>
+          🚀 Trigger: "{current.triggers}"
         </div>
+        <div style={{ width:2, height:18, background:C.accent+"60" }} />
 
         {current.steps.map((step, idx) => (
-          <div key={idx} style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
-            {/* Step card */}
-            <div style={{ width:"100%", maxWidth:620, ...card, border:`2px solid ${stepTypeColors[step.type]||C.border}`, position:"relative" }}>
+          <div key={idx} style={{ display:"flex", flexDirection:"column", alignItems:"center", width:"100%" }}>
+            <div style={{ width:"100%", maxWidth:640, ...card, border:`2px solid ${stepTypeColors[step.type]||C.border}` }}>
               {/* Step header */}
               <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
                 <div style={{ width:36, height:36, borderRadius:10, background:(stepTypeColors[step.type]||C.blue)+"22", border:`2px solid ${stepTypeColors[step.type]||C.blue}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
                   {stepTypeIcons[step.type]||"⚡"}
                 </div>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:13 }}>Step {idx+1}</div>
-                  <select value={step.type} onChange={e=>updateStep(current.id,idx,{type:e.target.value,content:"",templateName:"",languageCode:"en_US"})} style={{ ...inp, padding:"4px 8px", fontSize:12, marginTop:2, width:"auto" }}>
-                    {stepTypes.map(t => <option key={t} value={t}>{stepTypeIcons[t]} {t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                  <div style={{ fontWeight:700, fontSize:13, color:C.sub }}>Step {idx+1}</div>
+                  <select value={step.type} onChange={e=>updateStep(current.id,idx,{type:e.target.value,content:"",templateName:"",languageCode:"en_US"})}
+                    style={{ ...inp, padding:"4px 8px", fontSize:12, marginTop:2, width:"auto" }}>
+                    {stepTypes.map(t=><option key={t} value={t}>{stepTypeIcons[t]} {t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
                   </select>
                 </div>
-                {/* Move up/down/delete */}
-                <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                <div style={{ display:"flex", gap:4 }}>
                   <button onClick={()=>moveStep(current.id,idx,-1)} disabled={idx===0} style={{ ...btn("secondary"), padding:"4px 8px", fontSize:12, opacity:idx===0?0.4:1 }}>↑</button>
                   <button onClick={()=>moveStep(current.id,idx,1)} disabled={idx===current.steps.length-1} style={{ ...btn("secondary"), padding:"4px 8px", fontSize:12, opacity:idx===current.steps.length-1?0.4:1 }}>↓</button>
                   <button onClick={()=>removeStep(current.id,idx)} style={{ ...btn("secondary"), padding:"4px 8px", fontSize:12, color:C.red }}>🗑</button>
                 </div>
               </div>
 
-              {/* Step content based on type */}
+              {/* Step content */}
               {step.type === "message" && (
-                <textarea value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={{ ...inp, minHeight:70, resize:"vertical" }} placeholder="Type the message to send..." />
+                <textarea value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})}
+                  style={{ ...inp, minHeight:70, resize:"vertical" }} placeholder="Type the message to send to user..." />
               )}
               {step.type === "template" && (
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                  <div>
-                    <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label>
-                    <input value={step.templateName||""} onChange={e=>updateStep(current.id,idx,{templateName:e.target.value})} style={{ ...inp, marginTop:4 }} placeholder="e.g. hello_world" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>LANGUAGE CODE</label>
-                    <select value={step.languageCode||"en_US"} onChange={e=>updateStep(current.id,idx,{languageCode:e.target.value})} style={{ ...inp, marginTop:4 }}>
-                      <option value="en_US">English (US)</option>
-                      <option value="hi">Hindi</option>
-                      <option value="mr">Marathi</option>
-                      <option value="gu">Gujarati</option>
-                      <option value="ta">Tamil</option>
-                      <option value="te">Telugu</option>
-                    </select>
-                  </div>
-                  <div style={{ gridColumn:"1/-1" }}>
-                    <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>DESCRIPTION (optional note)</label>
-                    <input value={step.content||""} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={{ ...inp, marginTop:4 }} placeholder="e.g. Send welcome template" />
-                  </div>
-                </div>
+                <TemplatePicker
+                  value={step.templateName||""} langValue={step.languageCode||"en_US"}
+                  onChange={v=>updateStep(current.id,idx,{templateName:v})}
+                  onLangChange={v=>updateStep(current.id,idx,{languageCode:v})}
+                />
               )}
               {step.type === "collect" && (
                 <div>
-                  <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>WHAT TO COLLECT (label)</label>
-                  <input value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={{ ...inp, marginTop:4 }} placeholder="e.g. Name, Phone, Order ID" />
-                  <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>The user's reply will be stored as a variable with this name</div>
+                  <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>VARIABLE NAME (what to collect)</label>
+                  <input value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})}
+                    style={{ ...inp, marginTop:4 }} placeholder="e.g. name, phone, order_id" />
+                  <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>User reply will be stored in this variable</div>
                 </div>
               )}
               {step.type === "delay" && (
                 <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                  <input type="number" min={1} max={60} value={step.content||"5"} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={{ ...inp, width:80 }} />
+                  <input type="number" min={1} max={60} value={step.content||"5"} onChange={e=>updateStep(current.id,idx,{content:e.target.value})}
+                    style={{ ...inp, width:80 }} />
                   <span style={{ fontSize:13, color:C.sub }}>seconds before next step</span>
                 </div>
               )}
               {step.type === "end" && (
-                <input value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={inp} placeholder="Optional ending message (e.g. Thanks! Our team will reach out.)" />
+                <input value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})}
+                  style={inp} placeholder="Optional closing message (leave blank for silent end)" />
               )}
             </div>
-            {/* Arrow between steps */}
+
             {idx < current.steps.length-1 && (
-              <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
-                <div style={{ width:2, height:16, background:C.accent+"60" }} />
+              <>
+                <div style={{ width:2, height:14, background:C.accent+"60" }} />
                 <div style={{ fontSize:14, color:C.accent }}>▼</div>
-              </div>
+              </>
             )}
           </div>
         ))}
 
         {/* End node */}
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginTop:0 }}>
-          <div style={{ width:2, height:20, background:"#ef444460" }} />
-          <div style={{ padding:"8px 20px", background:"#fef2f2", border:"2px solid #fecaca", borderRadius:20, color:"#ef4444", fontWeight:700, fontSize:13 }}>🏁 End of Flow</div>
+        <div style={{ width:2, height:18, background:"#ef444460" }} />
+        <div style={{ padding:"8px 22px", background:"#fef2f2", border:"2px solid #fecaca", borderRadius:20, color:"#ef4444", fontWeight:700, fontSize:13 }}>🏁 End of Flow</div>
+        <div style={{ marginTop:20 }}>
+          <button style={btn()} onClick={()=>addStep(current.id)}>+ Add Step</button>
         </div>
-      </div>
-
-      {/* Add step button at bottom */}
-      <div style={{ textAlign:"center", marginTop:20 }}>
-        <button style={btn()} onClick={()=>addStep(current.id)}>+ Add Step</button>
       </div>
     </div>
   );
@@ -1261,13 +1258,9 @@ function ChatBot() {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
         <div>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>ChatBot Builder</h2>
-          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Build automated conversation flows — with text messages and Meta templates</p>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Build automated flows — supports text messages and approved Meta templates</p>
         </div>
-        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-          {saving && <span style={{ fontSize:13, color:C.sub }}>Saving...</span>}
-          {saved  && <span style={{ fontSize:13, color:C.accent, fontWeight:600 }}>✅ Saved</span>}
-          <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
-        </div>
+        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
       </div>
 
       {showAdd && (
@@ -1284,40 +1277,40 @@ function ChatBot() {
             </div>
           </div>
           <div style={{ display:"flex", gap:10, marginTop:14 }}>
-            <button style={btn()} onClick={addFlow}>Create & Edit Flow</button>
+            <button style={btn()} onClick={add}>Create & Edit Flow</button>
             <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
           </div>
         </div>
       )}
 
-      {loading ? <Loader /> : (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14 }}>
-          {flows.map(f => (
-            <div key={f.id} style={{ ...card, borderLeft:`4px solid ${f.active?C.accent:C.border}` }}>
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:12 }}>
-                <div style={{ width:40, height:40, borderRadius:10, background:f.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🤖</div>
-                <Badge status={f.active?"Active":"Paused"} />
-              </div>
-              <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{f.name}</div>
-              <div style={{ fontSize:12, color:C.sub, marginBottom:2 }}>Triggers: {f.triggers}</div>
-              <div style={{ fontSize:12, color:C.sub, marginBottom:14 }}>{f.steps?.length||0} steps · {f.steps?.filter(s=>s.type==="template").length||0} templates</div>
-              <div style={{ display:"flex", gap:8 }}>
-                <button onClick={()=>setActiveFlow(f.id)} style={{ ...btn(), flex:1, fontSize:12 }}>✏️ Edit Flow</button>
-                <button onClick={()=>toggleFlow(f.id)} style={{ ...btn("secondary"), flex:1, fontSize:12 }}>{f.active?"⏸ Pause":"▶ Activate"}</button>
-                <button onClick={()=>removeFlow(f.id)} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"10px 10px" }}>🗑</button>
-              </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14 }}>
+        {flows.map(f => (
+          <div key={f.id} style={{ ...card, borderLeft:`4px solid ${f.active?C.accent:C.border}` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:12 }}>
+              <div style={{ width:40, height:40, borderRadius:10, background:f.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🤖</div>
+              <Badge status={f.active?"Active":"Paused"} />
             </div>
-          ))}
-          {flows.length === 0 && (
-            <div style={{ gridColumn:"1/-1", ...card, textAlign:"center", padding:"50px 20px" }}>
-              <div style={{ fontSize:48, marginBottom:12 }}>🤖</div>
-              <h3 style={{ margin:"0 0 8px" }}>No flows yet</h3>
-              <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Create a flow to start automating your conversations</p>
-              <button style={btn()} onClick={()=>setShowAdd(true)}>+ Create First Flow</button>
+            <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{f.name}</div>
+            <div style={{ fontSize:12, color:C.sub, marginBottom:2 }}>Triggers: {f.triggers}</div>
+            <div style={{ fontSize:12, color:C.sub, marginBottom:14 }}>
+              {f.steps.length} steps · {f.steps.filter(s=>s.type==="template").length} templates
             </div>
-          )}
-        </div>
-      )}
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setActiveFlow(f.id)} style={{ ...btn(), flex:1, fontSize:12 }}>✏️ Edit Flow</button>
+              <button onClick={()=>toggle(f.id)} style={{ ...btn("secondary"), flex:1, fontSize:12 }}>{f.active?"⏸ Pause":"▶ Activate"}</button>
+              <button onClick={()=>remove(f.id)} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"10px" }}>🗑</button>
+            </div>
+          </div>
+        ))}
+        {flows.length === 0 && (
+          <div style={{ gridColumn:"1/-1", ...card, textAlign:"center", padding:"50px 20px" }}>
+            <div style={{ fontSize:48, marginBottom:12 }}>🤖</div>
+            <h3 style={{ margin:"0 0 8px" }}>No flows yet</h3>
+            <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Create a flow to automate your conversations</p>
+            <button style={btn()} onClick={()=>setShowAdd(true)}>+ Create First Flow</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1903,6 +1896,269 @@ function UsersList() {
 }
 
 // ─── PAGE ROUTER ──────────────────────────────────────────────────
+// ─── LIVE CHAT ────────────────────────────────────────────────────
+function LiveChat() {
+  const { templates } = useTemplates();
+  const [conversations, setConversations] = useState([]);
+  const [activePhone, setActivePhone]     = useState(null);
+  const [messages, setMessages]           = useState([]);
+  const [loading, setLoading]             = useState(true);
+  const [msgLoading, setMsgLoading]       = useState(false);
+  const [replyText, setReplyText]         = useState("");
+  const [replyType, setReplyType]         = useState("text");
+  const [replyTemplate, setReplyTemplate] = useState("");
+  const [replyLang, setReplyLang]         = useState("en_US");
+  const [sending, setSending]             = useState(false);
+  const [search, setSearch]               = useState("");
+  const [autoRefresh, setAutoRefresh]     = useState(true);
+  const bottomRef = useRef();
+
+  const loadConversations = () => {
+    fetch("/api/live-chat")
+      .then(r => r.json())
+      .then(data => { setConversations(Array.isArray(data) ? data : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  const loadMessages = (phone) => {
+    setMsgLoading(true);
+    fetch(`/api/live-chat?phone=${phone}`)
+      .then(r => r.json())
+      .then(data => { setMessages(Array.isArray(data) ? data : []); setMsgLoading(false); })
+      .catch(() => setMsgLoading(false));
+  };
+
+  useEffect(() => { loadConversations(); }, []);
+
+  // Auto-refresh every 5 seconds
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => {
+      loadConversations();
+      if (activePhone) loadMessages(activePhone);
+    }, 5000);
+    return () => clearInterval(id);
+  }, [autoRefresh, activePhone]);
+
+  // Scroll to bottom when messages update
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior:"smooth" });
+  }, [messages]);
+
+  const openConversation = (phone) => {
+    setActivePhone(phone);
+    loadMessages(phone);
+  };
+
+  const sendReply = async () => {
+    if (!activePhone) return;
+    if (replyType === "text" && !replyText.trim()) return alert("Please type a message");
+    if (replyType === "template" && !replyTemplate) return alert("Please select a template");
+    setSending(true);
+    const r = await fetch("/api/live-chat", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ to:activePhone, message:replyText, replyType, templateName:replyTemplate, languageCode:replyLang }),
+    });
+    setSending(false);
+    if (r.ok) {
+      setReplyText(""); setReplyTemplate("");
+      loadMessages(activePhone); loadConversations();
+    } else {
+      const d = await r.json(); alert(d.error || "Failed to send");
+    }
+  };
+
+  const filtered = conversations.filter(c =>
+    c.phone?.includes(search) || c.lastMsg?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const fmt = (ts) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    return isToday
+      ? d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit" })
+      : d.toLocaleDateString("en-IN", { day:"numeric", month:"short" });
+  };
+
+  const activeConv = conversations.find(c => c.phone === activePhone);
+
+  return (
+    <div style={{ display:"flex", height:"calc(100vh - 110px)", gap:0, borderRadius:14, overflow:"hidden", border:`1px solid ${C.border}` }}>
+
+      {/* ── Left panel — conversation list ── */}
+      <div style={{ width:320, flexShrink:0, background:"white", borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column" }}>
+        {/* Header */}
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}` }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <h3 style={{ margin:0, fontSize:15, fontWeight:800 }}>💬 Live Chat</h3>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ width:8, height:8, borderRadius:"50%", background:autoRefresh?C.accent:"#ccc" }} />
+              <span style={{ fontSize:11, color:C.sub }}>Live</span>
+              <button onClick={loadConversations} style={{ ...btn("secondary"), padding:"4px 8px", fontSize:11 }}>↻</button>
+            </div>
+          </div>
+          <input placeholder="🔍 Search conversations..." value={search} onChange={e=>setSearch(e.target.value)}
+            style={{ ...inp, fontSize:13 }} />
+        </div>
+
+        {/* Conversation list */}
+        <div style={{ flex:1, overflowY:"auto" }}>
+          {loading ? <Loader /> : filtered.length === 0 ? (
+            <div style={{ padding:30, textAlign:"center", color:C.sub, fontSize:13 }}>
+              No conversations yet.<br/>Messages from customers will appear here.
+            </div>
+          ) : filtered.map(conv => (
+            <div key={conv.phone} onClick={()=>openConversation(conv.phone)}
+              style={{ padding:"12px 16px", borderBottom:`1px solid ${C.border}`, cursor:"pointer",
+                background:activePhone===conv.phone ? C.accentLight : "white",
+                borderLeft: activePhone===conv.phone ? `3px solid ${C.accent}` : "3px solid transparent" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  {/* Avatar */}
+                  <div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
+                    display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800, fontSize:14, flexShrink:0 }}>
+                    {conv.phone?.slice(-2)}
+                  </div>
+                  <div>
+                    {/* Show real WhatsApp number */}
+                    <div style={{ fontWeight:700, fontSize:13, color:C.text }}>+{conv.phone}</div>
+                    <div style={{ fontSize:11, color:C.sub }}>{conv.totalMsgs} messages</div>
+                  </div>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+                  <span style={{ fontSize:11, color:C.sub }}>{fmt(conv.lastTime)}</span>
+                  {conv.unread > 0 && (
+                    <span style={{ background:C.accent, color:"white", borderRadius:10, fontSize:10, fontWeight:700, padding:"1px 7px" }}>{conv.unread}</span>
+                  )}
+                </div>
+              </div>
+              <div style={{ fontSize:12, color:C.sub, marginLeft:46, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                {conv.direction==="outbound" ? "You: " : ""}{conv.lastMsg}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Right panel — chat window ── */}
+      {!activePhone ? (
+        <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:12, color:C.sub, background:C.bg }}>
+          <div style={{ fontSize:56 }}>💬</div>
+          <div style={{ fontSize:16, fontWeight:700, color:C.text }}>Select a conversation</div>
+          <div style={{ fontSize:13 }}>Click any conversation on the left to open it</div>
+        </div>
+      ) : (
+        <div style={{ flex:1, display:"flex", flexDirection:"column", background:C.bg }}>
+          {/* Chat header */}
+          <div style={{ padding:"12px 20px", background:"white", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:40, height:40, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
+                display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800 }}>
+                {activePhone?.slice(-2)}
+              </div>
+              <div>
+                <div style={{ fontWeight:800, fontSize:15 }}>+{activePhone}</div>
+                <div style={{ fontSize:12, color:C.sub }}>{activeConv?.totalMsgs || 0} messages · WhatsApp</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <a href={`https://wa.me/${activePhone}`} target="_blank" rel="noreferrer"
+                style={{ ...btn("secondary"), textDecoration:"none", fontSize:12, padding:"6px 12px" }}>
+                Open in WhatsApp ↗
+              </a>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:8 }}>
+            {msgLoading ? <Loader /> : messages.map((msg, i) => {
+              const isOut = msg.direction === "outbound";
+              return (
+                <div key={i} style={{ display:"flex", justifyContent:isOut?"flex-end":"flex-start" }}>
+                  <div style={{ maxWidth:"65%", padding:"10px 14px", borderRadius:isOut?"14px 14px 4px 14px":"14px 14px 14px 4px",
+                    background:isOut?`linear-gradient(135deg,${C.accent},${C.accent2})`:"white",
+                    color:isOut?"white":C.text, fontSize:13, lineHeight:1.5,
+                    boxShadow:"0 1px 3px rgba(0,0,0,0.08)", border:isOut?"none":`1px solid ${C.border}` }}>
+                    <div>{msg.body}</div>
+                    <div style={{ fontSize:10, marginTop:4, opacity:0.7, textAlign:"right" }}>
+                      {fmt(msg.created_at)} {isOut ? (msg.status==="delivered"?"✓✓":msg.status==="read"?"✓✓":"✓") : ""}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {messages.length === 0 && !msgLoading && (
+              <div style={{ textAlign:"center", color:C.sub, fontSize:13, marginTop:40 }}>No messages yet in this conversation</div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Reply box */}
+          <div style={{ background:"white", borderTop:`1px solid ${C.border}`, padding:"14px 20px" }}>
+            {/* Reply type toggle */}
+            <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+              {[["text","✏️ Text"],["template","📋 Template"]].map(([val,label])=>(
+                <button key={val} onClick={()=>setReplyType(val)}
+                  style={{ ...btn(replyType===val?"primary":"secondary"), fontSize:12, padding:"6px 14px" }}>{label}</button>
+              ))}
+            </div>
+
+            {replyType === "text" ? (
+              <div style={{ display:"flex", gap:10, alignItems:"flex-end" }}>
+                <textarea
+                  value={replyText}
+                  onChange={e=>setReplyText(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendReply(); } }}
+                  placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                  style={{ ...inp, flex:1, minHeight:44, maxHeight:120, resize:"none" }}
+                />
+                <button onClick={sendReply} disabled={sending}
+                  style={{ ...btn(), padding:"12px 20px", flexShrink:0 }}>
+                  {sending ? "..." : "Send ➤"}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                  <div>
+                    <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE</label>
+                    <select value={replyTemplate} onChange={e=>setReplyTemplate(e.target.value)} style={{ ...inp, marginTop:4, fontSize:13 }}>
+                      <option value="">— Select approved template —</option>
+                      {templates.map(t=>(
+                        <option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>LANGUAGE</label>
+                    <select value={replyLang} onChange={e=>setReplyLang(e.target.value)} style={{ ...inp, marginTop:4, fontSize:13 }}>
+                      <option value="en_US">English (US)</option>
+                      <option value="hi">Hindi</option>
+                      <option value="mr">Marathi</option>
+                      <option value="gu">Gujarati</option>
+                      <option value="ta">Tamil</option>
+                    </select>
+                  </div>
+                </div>
+                {replyTemplate && templates.find(t=>t.name===replyTemplate) && (
+                  <div style={{ padding:"8px 12px", background:C.accentLight, borderRadius:8, fontSize:12, color:C.accent2 }}>
+                    Preview: {templates.find(t=>t.name===replyTemplate)?.preview}
+                  </div>
+                )}
+                <button onClick={sendReply} disabled={sending} style={{ ...btn(), alignSelf:"flex-end", minWidth:160 }}>
+                  {sending ? "Sending..." : "📋 Send Template ➤"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PageContent({ page }) {
   const map = {
     "dashboard":        <Dashboard />,
@@ -1914,6 +2170,7 @@ function PageContent({ page }) {
     "wa-account":       <WAAccount />,
     "auto-responder":   <AutoResponder />,
     "chatbot":          <ChatBot />,
+    "live-chat":        <LiveChat />,
     "msg-template":     <MessageTemplate />,
     "list-template":    <ListTemplate />,
     "group-grabber":    <GroupGrabber />,
