@@ -1,159 +1,388 @@
-# WASend Dashboard — Project Summary
-> Share this file at the start of any Claude conversation to get instant context.
+# ThynkApp Sender / ThynkComm — Full Project Summary
+> Paste this entire file at the start of any new Claude conversation to get instant context.
+> Last Updated: March 2026
 
 ---
 
-## 🧠 What This Project Is
+## 🧠 Project Overview
 
-A **WhatsApp Marketing Dashboard** called **WASend** — a full React frontend UI for managing WhatsApp bulk messaging campaigns, contacts, templates, bots, and API integrations. It is a **UI prototype** with mock data (no real backend yet).
+A **WhatsApp Marketing SaaS Dashboard** called **ThynkApp Sender** (branding) / **ThynkComm** (repo name).
+Built to sell as a real product — allows users to send bulk WhatsApp campaigns, manage contacts,
+create message templates, set up auto-responders, chatbots, live chat inbox, and view delivery analytics.
+All powered by **Meta WhatsApp Cloud API** directly (no 3rd party middleware).
 
 ---
 
-## 📁 File Structure
+## 🌐 Live URLs
 
-```
-wa-dashboard/
-├── src/
-│   ├── App.jsx         ← ENTIRE app lives here (single file, ~1054 lines)
-│   └── main.jsx        ← React root entry point
-├── index.html          ← HTML shell
-├── package.json        ← React 18 + Vite 5
-├── vite.config.js      ← Vite + React plugin config
-├── .gitignore
-└── PROJECT_SUMMARY.md  ← this file
-```
+| Service | URL |
+|---|---|
+| Frontend (Live) | https://thynkcom.vercel.app |
+| GitHub Repo | https://github.com/rahulasclat-EdTech/ThynkComm |
+| Supabase Dashboard | supabase.com → project: wasend |
 
 ---
 
 ## 🛠 Tech Stack
 
-| Layer | Choice |
-|---|---|
-| Framework | React 18 |
-| Build Tool | Vite 5 |
-| Styling | Inline styles via JS design tokens (no CSS files, no Tailwind) |
-| State | React useState / useRef / useEffect only |
-| Data | All mock/hardcoded (no API calls, no database) |
-| Hosting | Vercel (GitHub auto-deploy) |
-
----
-
-## 🎨 Design System (Design Tokens in `C` object)
-
-```js
-bg:           #f0f7f4   // page background
-sidebar:      #ffffff   // sidebar & topbar
-accent:       #25d366   // WhatsApp green (primary)
-accent2:      #128c7e   // darker green
-accentLight:  #e8f8f0   // light green tint
-border:       #e4ede9
-text:         #1a2e25
-sub:          #6b8a7a   // muted/secondary text
-red:          #ef4444
-yellow:       #f59e0b
-blue:         #3b82f6
-purple:       #8b5cf6
-```
-
-Reusable style helpers: `card`, `inp`, `btn(variant)`, `pill(color, bg)`
-
----
-
-## 🗂 Pages & Components (16 total)
-
-### ✅ Fully Built Pages
-| Page ID | Component | What It Does |
+| Layer | Technology | Hosting |
 |---|---|---|
-| `dashboard` | `Dashboard` | Stats grid, recent campaigns, delivery funnel chart, quick actions |
-| `wa-account` | `WAAccount` | Lists 2 mock accounts, Add Account form (toggleable) |
-| `campaign-summary` | `CampaignSummary` | Stats + full campaigns table with search |
-| `create-campaign` | `CreateCampaign` | 4-step wizard: Template → Compose → Recipients → Review & Send |
-| `send-single` | `CreateCampaign` | Reuses same component |
-| `auto-responder` | `AutoResponder` | Keyword-based auto-reply rules, toggle active/paused |
-| `chatbot` | `ChatBot` | Flow list + visual flow builder preview |
-| `msg-template` | `MessageTemplate` | Template cards + preview panel |
-| `contacts` | `Contacts` | Table with search, Add Contact form, opt-in toggle |
-| `link-qr` | `LinkQR` | WA link generator + QR code display |
-| `wa-api` | `WAAPI` | API keys table, token reveal toggle |
-| `integrations` | `Integrations` | Razorpay, Cashfree, Shopify, WooCommerce cards |
-| `white-label` | `WhiteLabel` | Brand name, logo, color customizer form |
-| `users-list` | `UsersList` | Reseller users table with plan badges |
-
-### 🔲 Placeholder Pages (UI shell only, no functionality)
-| Page ID | Label |
-|---|---|
-| `wa-group` | Account Groups |
-| `list-template` | List Message Template |
-| `group-grabber` | Group Grabber |
-| `wa-warmer` | WhatsApp Warmer |
+| Frontend | React 18 + Vite 5 | Vercel (free) |
+| Backend API | Vercel Serverless Functions (Node.js) | Vercel (free) |
+| Database | Supabase (PostgreSQL) | Supabase (free) |
+| WhatsApp | Meta Cloud API v19.0 | Meta (pay per message) |
+| Styling | Inline JS styles, dark theme | — |
+| State | React useState / useEffect only | — |
+| Auth | localStorage-based login system | — |
+| Scheduling | cron-job.org (free external cron) | cron-job.org (free) |
 
 ---
 
-## 📦 Mock Data Available
+## 🎨 Design System (Dark Theme)
 
-| Variable | Contents |
-|---|---|
-| `mockCampaigns` | 4 campaigns (Diwali Sale, Product Launch, Reengagement, Black Friday) |
-| `mockContacts` | 6 contacts with name, phone, email, tag, optIn |
-| `mockTemplates` | 5 templates (Transactional, Marketing, Support, Onboarding) |
-| `mockBots` | 3 auto-responder rules (PRICE, SUPPORT, ORDER keywords) |
-| `mockAPIs` | 2 API instances (Production, Razorpay Webhook) |
+```javascript
+const C = {
+  bg:          "#0f1923",        // deep navy background
+  sidebar:     "#131f2e",        // sidebar
+  card:        "#1a2940",        // card surface
+  accent:      "#1ab8a8",        // teal primary (logo color)
+  accent2:     "#0e8a7d",        // darker teal
+  accentLight: "#1ab8a820",      // teal glow
+  border:      "#ffffff14",      // subtle border
+  text:        "#f0f8ff",        // near white
+  sub:         "#7fa8c4",        // muted
+  red:         "#ff5c7a",
+  yellow:      "#ffd166",
+  blue:        "#4db8ff",
+  purple:      "#c77dff",
+  green:       "#06d6a0",
+  orange:      "#ff9f43",
+}
+```
+
+Logo: ThynkSuccess logo embedded as base64 PNG in App.jsx (LOGO_SRC constant)
+Brand name: **ThynkApp Sender** (replaces old "WASend")
 
 ---
 
-## 🏗 App Shell (in `App` component)
+## 📁 Correct Repo Structure
 
-- **Sidebar**: Collapsible (60px ↔ 240px), nav grouped into sections, active state highlight
-- **Topbar**: Shows current page title + subtitle, phone number, Live status badge, avatar
-- **Router**: Simple object map `{ pageId: <Component /> }` — no React Router
-- **State**: `activePage` (string) + `sidebarCollapsed` (bool) at root level
-
----
-
-## 🚀 Deployment
-
-- **Platform**: Vercel (free Hobby plan — up to 10 projects)
-- **Trigger**: Auto-deploy on every `git push` to `main`
-- **Build command**: `npm run build` (auto-detected by Vercel)
-- **Output dir**: `dist/`
-- **GitHub repo**: `wa-dashboard` (to be set up)
-
-### Local Dev Commands
-```bash
-npm install       # first time only
-npm run dev       # dev server at http://localhost:5173
-npm run build     # production build → /dist
+```
+ThynkComm/
+├── api/
+│   ├── contacts.js           ← GET/POST /api/contacts
+│   ├── campaigns.js          ← GET/POST /api/campaigns (send now or schedule)
+│   ├── send-message.js       ← POST /api/send-message
+│   ├── webhook.js            ← GET/POST /api/webhook (Meta webhook + auto-responder + chatbot)
+│   ├── cron-send.js          ← GET /api/cron-send (called by cron-job.org every minute)
+│   ├── templates.js          ← GET /api/templates (fetch approved Meta templates)
+│   ├── live-chat.js          ← GET/POST /api/live-chat (conversations + admin reply)
+│   ├── auto-responder.js     ← GET/POST /api/auto-responder (rules)
+│   └── chatbot-flows.js      ← GET/POST /api/chatbot-flows (flows)
+├── src/
+│   ├── App.jsx               ← entire React frontend (~2500 lines)
+│   └── main.jsx
+├── package.json              ← NO "type": "module" — removed
+├── vite.config.js
+├── index.html
+└── PROJECT_SUMMARY_FULL.md
 ```
 
 ---
 
-## 🐛 Known Limitations / Not Yet Built
+## ⚙️ Vercel Configuration
 
-- No real WhatsApp API integration
-- No backend / database
-- No authentication / login screen
-- No real file upload handling (file input exists but does nothing)
-- No chart library (delivery funnel uses raw CSS bars)
-- `CreateCampaign` "Send" button fakes a 2s loading state then shows success
-- QR code in `LinkQR` is a static placeholder image
+```
+Project Name:     thynkcom
+Framework:        Vite
+Root Directory:   (BLANK)
+Build Command:    npm run build
+Output Dir:       dist
+Branch:           main
+```
+
+### Environment Variables (Vercel → Settings → Environment Variables)
+```
+WHATSAPP_TOKEN        → Meta permanent system user token (NOT temporary)
+PHONE_NUMBER_ID       → Meta Phone Number ID (numeric, from API Setup page)
+WABA_ID               → WhatsApp Business Account ID
+SUPABASE_URL          → https://xxxxxx.supabase.co
+SUPABASE_ANON_KEY     → eyJ... (anon/public key)
+WEBHOOK_VERIFY_TOKEN  → any secret string e.g. thynkcomm2026
+CRON_SECRET           → any secret string e.g. cronthynk2026
+```
 
 ---
 
-## 💡 Suggested Next Steps (pick any)
+## 🗄️ Supabase Tables
 
-1. **Add React Router** — for proper URL-based navigation
-2. **Connect real WhatsApp API** — Meta Cloud API or 3rd party like Interakt
-3. **Add Recharts or Chart.js** — for real analytics graphs on Dashboard
-4. **Add login page** — simple auth gate before dashboard
-5. **Replace mock data** — wire up to a Node.js/Express or Supabase backend
-6. **Make it mobile responsive** — currently desktop-only layout
+### contacts
+```sql
+id          bigserial PRIMARY KEY
+name        text
+phone       text        -- format: 919999999999
+email       text
+tag         text        default: 'Lead'
+opt_in      bool        default: true
+created_at  timestamptz default: now()
+```
+
+### campaigns
+```sql
+id          bigserial PRIMARY KEY
+name        text
+status      text        default: 'Running'
+total       int4        default: 0
+sent        int4        default: 0
+delivered   int4        default: 0
+failed      int4        default: 0
+created_at  timestamptz default: now()
+```
+
+### messages
+```sql
+id            bigserial PRIMARY KEY
+to_number     text
+from_number   text
+contact_name  text        -- real WhatsApp contact name from webhook
+body          text
+status        text
+direction     text        -- 'inbound' or 'outbound'
+wa_message_id text
+created_at    timestamptz default: now()
+```
+
+### scheduled_campaigns
+```sql
+id              bigserial PRIMARY KEY
+name            text
+contact_ids     bigint[]
+message         text
+template_name   text
+language_code   text        default: 'en_US'
+scheduled_at    timestamptz
+timezone        text        default: 'Asia/Kolkata'
+status          text        default: 'pending'
+error_message   text
+campaign_id     bigint
+sent_at         timestamptz
+created_at      timestamptz default: now()
+```
+
+### auto_responder_rules
+```sql
+id            bigserial PRIMARY KEY
+keyword       text
+match_type    text        -- 'exact', 'contains', 'starts'
+response_type text        -- 'text' or 'template'
+response_text text
+template_name text
+language_code text        default: 'en_US'
+active        bool        default: true
+created_at    timestamptz default: now()
+```
+
+### chatbot_flows
+```sql
+id         bigserial PRIMARY KEY
+name       text
+triggers   text
+active     bool        default: true
+steps      jsonb       default: '[]'
+created_at timestamptz default: now()
+```
+
+### chatbot_sessions
+```sql
+id           bigserial PRIMARY KEY
+phone        text
+flow_id      bigint
+current_step int         default: 0
+status       text        default: 'active'
+created_at   timestamptz default: now()
+```
+
+### ⚠️ RLS must be DISABLED on ALL tables
+```sql
+ALTER TABLE contacts            DISABLE ROW LEVEL SECURITY;
+ALTER TABLE campaigns           DISABLE ROW LEVEL SECURITY;
+ALTER TABLE messages            DISABLE ROW LEVEL SECURITY;
+ALTER TABLE scheduled_campaigns DISABLE ROW LEVEL SECURITY;
+ALTER TABLE auto_responder_rules DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chatbot_flows       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chatbot_sessions    DISABLE ROW LEVEL SECURITY;
+```
 
 ---
 
-## 🗣 How to Use This File with Claude
+## 🔌 API Routes
 
-Paste this message at the start of any new Claude chat:
+| Method | Route | What it does |
+|---|---|---|
+| GET | /api/contacts | Fetch all contacts |
+| POST | /api/contacts | Add new contact |
+| GET | /api/campaigns | Fetch all campaigns |
+| POST | /api/campaigns | Create + send/schedule campaign |
+| POST | /api/send-message | Send single WhatsApp message |
+| GET | /api/webhook | Meta webhook verification |
+| POST | /api/webhook | Receive messages + trigger auto-responder/chatbot |
+| GET | /api/cron-send | Run scheduled campaigns (called by cron-job.org) |
+| GET | /api/templates | Fetch approved Meta templates |
+| GET | /api/live-chat | Fetch all conversations |
+| GET | /api/live-chat?phone=X | Fetch single conversation thread |
+| POST | /api/live-chat | Admin sends reply to user |
+| GET | /api/auto-responder | Fetch auto-responder rules |
+| POST | /api/auto-responder | Save auto-responder rules |
+| GET | /api/chatbot-flows | Fetch chatbot flows |
+| POST | /api/chatbot-flows | Save chatbot flows |
 
-> "Here is my project summary. I'm working on a React WhatsApp dashboard called WASend. [paste this file content] — I want to [your request here]"
+---
 
-This gives Claude full context to help you with: adding features, fixing bugs, refactoring components, deploying, or building new pages.
+## 🔐 Login / Multi-User System
+
+- Login page shown before dashboard (email + password)
+- Default admin: **admin@thynkapp.com** / **admin123**
+- Users stored in **localStorage** (client-side, no backend needed)
+- Roles: **admin** (full), **manager** (campaigns+contacts), **agent** (live chat+send), **viewer** (read only)
+- Avatar colors auto-assigned from a palette
+- Logout via sidebar bottom (⎋ button) or clicking avatar in topbar
+- Admin can add/remove users from **Users & Access** page
+
+---
+
+## 📱 Pages & Status
+
+### ✅ Fully Working
+| Page | Features |
+|---|---|
+| Dashboard | Real stats, delivery funnel |
+| Contacts | Groups → Add manual / Import CSV |
+| Campaign Summary | Real data from Supabase |
+| Create Campaign | Template or text, select group, schedule |
+| Send Single Message | Real WhatsApp send |
+| Link & QR Generator | WA links + QR codes |
+| WhatsApp Account | Live Meta API verification |
+| Auto-Responder | Template dropdown (approved templates), keyword rules |
+| ChatBot Builder | Visual flow builder, template steps, drag-reorder |
+| Live Chat | Real-time inbox, shows real phone numbers, admin reply |
+| Users & Access | Add/remove users, roles |
+
+### 🔲 Placeholder (show "Get Started" only)
+| Page | ID |
+|---|---|
+| Account Groups | wa-group |
+| Message Template | msg-template |
+| List Message Template | list-template |
+| Group Grabber | group-grabber |
+| WhatsApp Warmer | wa-warmer |
+| WhatsApp API | wa-api |
+| Integrations | integrations |
+| White Label | white-label |
+| ChatBot | chatbot (partially built) |
+| Auto-Responder | auto-responder (partially built) |
+
+---
+
+## 🕐 Campaign Scheduling
+
+- **Send Now** → immediate send via Meta API
+- **Schedule Later** → saved to `scheduled_campaigns` table
+- **cron-job.org** (free) calls `/api/cron-send?secret=YOUR_CRON_SECRET` every minute
+- Cron checks for pending campaigns due now, fires them, marks as sent
+- Setup: cron-job.org → Create cronjob → URL: `https://thynkcom.vercel.app/api/cron-send?secret=cronthynk2026`
+
+---
+
+## 🤖 Auto-Responder + ChatBot Logic
+
+### Auto-Responder
+- Rules stored in Supabase `auto_responder_rules`
+- Webhook receives message → checks all active rules → first match wins
+- Response types: **text** or **Meta template** (from approved templates dropdown)
+- Match types: exact, contains, starts with
+
+### ChatBot
+- Flows stored in Supabase `chatbot_flows`
+- Sessions tracked in `chatbot_sessions`
+- Triggered by keywords in inbound messages
+- Step types: message, template, collect, delay, end
+- Chatbot takes priority over auto-responder
+
+---
+
+## 💬 Live Chat
+
+- Left panel: all conversations grouped by real WhatsApp phone number
+- Shows real phone number (e.g. +919999999999) NOT internal IDs
+- Contact name from Meta webhook payload stored in `contact_name` column
+- Auto-refreshes every 5 seconds
+- Admin can reply with text or approved Meta template
+- "Open in WhatsApp" button per conversation
+
+---
+
+## 🐛 Issues Resolved
+
+| Issue | Fix |
+|---|---|
+| 404 on Vercel | Root Directory was set wrong → set to blank |
+| api/ not detected | api/ was inside subfolder → moved to repo root |
+| Contact not saving | Supabase RLS enabled → disabled via SQL |
+| import/export syntax crash | Removed "type":"module" from package.json, switched to require/module.exports |
+| JSON parse error on API | Same import/export fix |
+| Campaign not scheduling | Created scheduled_campaigns table + cron-send.js |
+| Template dropdown empty | Created /api/templates → fetches from Meta WABA |
+| Live chat shows ID not phone | webhook.js updated to store from_number (real phone) + contact_name |
+| WhatsApp connection fails | WAAccount page now live-tests credentials against Meta API |
+
+---
+
+## 🚀 Deployment Workflow
+
+```
+Edit files on GitHub
+→ Vercel auto-deploys in ~60 seconds
+→ Live at thynkcom.vercel.app
+```
+
+---
+
+## 📋 Remaining Roadmap
+
+### Priority 1 — Core
+- [ ] Message Templates page (list + create Meta-approved templates via UI)
+- [ ] List Message Template page
+- [ ] WhatsApp API page (show credentials, token management)
+
+### Priority 2 — Growth
+- [ ] Integrations (Razorpay, Cashfree webhooks)
+- [ ] Group Grabber (export WA group contacts)
+- [ ] WhatsApp Warmer
+
+### Priority 3 — SaaS
+- [ ] Multi-tenant (each user sees own data)
+- [ ] Supabase Auth (replace localStorage auth with proper auth)
+- [ ] White Label (custom branding per client)
+- [ ] Billing / Subscription system
+
+### Priority 4 — Polish
+- [ ] Real charts (Recharts)
+- [ ] Mobile responsive layout
+- [ ] Real-time updates via Supabase Realtime
+
+---
+
+## 🗣️ How to Use This File With Claude
+
+Paste this at the start of any new Claude chat:
+
+> "Here is my full project summary for ThynkApp Sender / ThynkComm.
+> [paste this entire file]
+> I want to [your request]"
+
+### Example requests:
+- "Build the Message Templates page"
+- "Add Recharts to the Dashboard"
+- "Make the app mobile responsive"
+- "Fix the Campaign page bug where..."
+- "Add Supabase Auth login"
