@@ -81,30 +81,49 @@ function ErrorBox({ msg }) {
 
 // ─── WHATSAPP ACCOUNT ─────────────────────────────────────────────
 function WAAccount() {
-  const [form, setForm] = useState({ token:"", phone_number_id:"", waba_id:"", display_name:"" });
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-  const [accounts, setAccounts] = useState([]);
+  const [form, setForm]       = useState({ token:"", phone_number_id:"", waba_id:"", display_name:"" });
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null); // null | {ok, msg}
+  const [accounts, setAccounts]     = useState([]);
 
   useEffect(() => {
     const stored = localStorage.getItem("wa_accounts");
     if (stored) setAccounts(JSON.parse(stored));
   }, []);
 
-  const save = () => {
+  // Live-test credentials against Meta API before saving
+  const testAndSave = async () => {
     if (!form.token || !form.phone_number_id || !form.waba_id) {
-      setError("Token, Phone Number ID and WABA ID are required"); return;
+      setTestResult({ ok:false, msg:"Token, Phone Number ID and WABA ID are all required." }); return;
     }
-    setSaving(true);
-    setTimeout(() => {
-      const newAccounts = [...accounts, { ...form, id: Date.now(), connected_at: new Date().toISOString() }];
+    setTesting(true); setTestResult(null);
+    try {
+      // Call Meta Graph API to verify Phone Number ID is real and token is valid
+      const r = await fetch(
+        `https://graph.facebook.com/v19.0/${form.phone_number_id}?fields=display_phone_number,verified_name,status&access_token=${form.token}`
+      );
+      const data = await r.json();
+      if (!r.ok || data.error) {
+        setTestResult({ ok:false, msg: data.error?.message || "Invalid credentials. Check your Token and Phone Number ID." });
+        setTesting(false); return;
+      }
+      // Success — save
+      const newAccounts = [...accounts, {
+        ...form,
+        id: Date.now(),
+        verified_name: data.verified_name || form.display_name,
+        display_phone: data.display_phone_number,
+        meta_status: data.status,
+        connected_at: new Date().toISOString(),
+      }];
       localStorage.setItem("wa_accounts", JSON.stringify(newAccounts));
       setAccounts(newAccounts);
       setForm({ token:"", phone_number_id:"", waba_id:"", display_name:"" });
-      setSaved(true); setSaving(false); setError(null);
-      setTimeout(() => setSaved(false), 3000);
-    }, 800);
+      setTestResult({ ok:true, msg:`✅ Connected! Verified as "${data.verified_name}" (${data.display_phone_number})` });
+    } catch(e) {
+      setTestResult({ ok:false, msg:"Network error: " + e.message });
+    }
+    setTesting(false);
   };
 
   const remove = (id) => {
@@ -116,53 +135,99 @@ function WAAccount() {
   return (
     <div>
       <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>WhatsApp Account</h2>
-      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Connect your Meta WhatsApp Business account via API credentials.</p>
+      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Connect your Meta WhatsApp Business account. Credentials are verified live against Meta API.</p>
+
+      {/* ── WHY CONNECTION FAILS — diagnostic box ── */}
+      <div style={{ ...card, marginBottom:20, background:"#fffbeb", border:"1px solid #fde68a" }}>
+        <div style={{ fontWeight:700, fontSize:13, color:"#92400e", marginBottom:10 }}>⚠️ Common reasons the app can't connect to WhatsApp Business</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8, fontSize:13, color:"#78350f" }}>
+          {[
+            ["🔑 Wrong or expired token", "The temporary token from Meta expires every 24 hours. Generate a permanent System User token instead. Go to: Meta Business → Settings → Users → System Users → Generate Token"],
+            ["📱 Phone Number ID mismatch", "Copy the Phone Number ID exactly from Meta App Dashboard → WhatsApp → API Setup. Do NOT use the actual phone number — use the numeric ID."],
+            ["🔗 Webhook not configured", `In Meta App Dashboard → WhatsApp → Configuration, set Callback URL to: https://thynkcom.vercel.app/api/webhook and Verify Token to the value of your WEBHOOK_VERIFY_TOKEN env var.`],
+            ["📋 Webhook fields not subscribed", "After setting the webhook URL, click 'Manage' next to Webhook Fields and subscribe to: messages, message_deliveries, message_reads"],
+            ["🌐 Environment variables not in Vercel", "WHATSAPP_TOKEN, PHONE_NUMBER_ID, WABA_ID must all be set in Vercel → Settings → Environment Variables, then redeploy."],
+            ["📵 Test number limitations", "Meta's free test number can only send to 5 verified numbers. Add your number in: Meta App → WhatsApp → API Setup → To field → Manage phone number list"],
+          ].map(([title, desc]) => (
+            <div key={title} style={{ padding:"10px 12px", background:"white", borderRadius:8, border:"1px solid #fde68a" }}>
+              <div style={{ fontWeight:700, marginBottom:3 }}>{title}</div>
+              <div style={{ fontSize:12, color:"#92400e" }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Connected Accounts ── */}
       {accounts.length > 0 && (
         <div style={{ ...card, marginBottom:20 }}>
           <h3 style={{ margin:"0 0 14px", fontSize:14, fontWeight:700 }}>Connected Accounts ({accounts.length})</h3>
           {accounts.map(a => (
             <div key={a.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", background:C.accentLight, borderRadius:10, marginBottom:10, border:`1px solid ${C.accent}30` }}>
               <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                <div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800, fontSize:16 }}>📱</div>
+                <div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontSize:18 }}>📱</div>
                 <div>
-                  <div style={{ fontWeight:700, fontSize:14 }}>{a.display_name || "WhatsApp Business"}</div>
-                  <div style={{ fontSize:12, color:C.sub }}>Phone ID: {a.phone_number_id} · WABA: {a.waba_id}</div>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{a.verified_name || a.display_name || "WhatsApp Business"}</div>
+                  <div style={{ fontSize:12, color:C.sub }}>{a.display_phone || ""} · Phone ID: {a.phone_number_id}</div>
+                  <div style={{ fontSize:11, color:C.sub }}>WABA: {a.waba_id} · Added {a.connected_at?.split("T")[0]}</div>
                 </div>
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <span style={pill(C.accent, C.accentLight)}>✓ Connected</span>
+                <span style={pill(C.accent, C.accentLight)}>✓ Verified</span>
                 <button onClick={() => remove(a.id)} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"6px 12px" }}>Remove</button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* ── Add Account Form ── */}
       <div style={{ ...card, border:`1.5px solid ${C.border}` }}>
-        <h3 style={{ margin:"0 0 6px", fontSize:15, fontWeight:700 }}>Add New Account</h3>
-        <p style={{ color:C.sub, fontSize:12, margin:"0 0 16px" }}>Get these values from <strong>Meta Business → WhatsApp → API Setup</strong></p>
-        {error && <div style={{ marginBottom:14 }}><ErrorBox msg={error} /></div>}
-        {saved && <div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"12px 16px", color:C.accent2, fontWeight:600, marginBottom:14 }}>✅ Account connected successfully!</div>}
+        <h3 style={{ margin:"0 0 6px", fontSize:15, fontWeight:700 }}>Add & Verify Account</h3>
+        <p style={{ color:C.sub, fontSize:12, margin:"0 0 16px" }}>Credentials are tested live against Meta API before saving.</p>
+
+        {testResult && (
+          <div style={{ marginBottom:14, padding:"12px 16px", borderRadius:10, background: testResult.ok ? C.accentLight : "#fef2f2", border:`1px solid ${testResult.ok ? C.accent : "#fecaca"}`, color: testResult.ok ? C.accent2 : C.red, fontWeight:600, fontSize:13 }}>
+            {testResult.msg}
+          </div>
+        )}
+
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
           <div style={{ gridColumn:"1/-1" }}>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DISPLAY NAME (optional)</label>
             <input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="My Business Account" />
           </div>
           <div style={{ gridColumn:"1/-1" }}>
-            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>ACCESS TOKEN *</label>
+            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PERMANENT ACCESS TOKEN * <span style={{ color:C.red }}>(do NOT use temporary token)</span></label>
             <input value={form.token} onChange={e=>setForm({...form,token:e.target.value})} style={{ ...inp, marginTop:5, fontFamily:"monospace", fontSize:12 }} placeholder="EAAxxxxxxxxxxxxx..." type="password" />
+            <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Get permanent token: Meta Business → Settings → System Users → Add System User → Generate Token → Select your app → whatsapp_business_messaging permission</div>
           </div>
           <div>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PHONE NUMBER ID *</label>
-            <input value={form.phone_number_id} onChange={e=>setForm({...form,phone_number_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="1234567890" />
+            <input value={form.phone_number_id} onChange={e=>setForm({...form,phone_number_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. 123456789012345" />
+            <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Meta App → WhatsApp → API Setup → Phone Number ID (the long number, not the phone number itself)</div>
           </div>
           <div>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>WABA ID *</label>
-            <input value={form.waba_id} onChange={e=>setForm({...form,waba_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="9876543210" />
+            <input value={form.waba_id} onChange={e=>setForm({...form,waba_id:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. 987654321098765" />
+            <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Meta App → WhatsApp → API Setup → WhatsApp Business Account ID</div>
           </div>
         </div>
+
+        {/* Webhook setup reminder */}
+        <div style={{ marginTop:16, padding:"14px 16px", background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:10 }}>
+          <div style={{ fontWeight:700, fontSize:13, color:"#1e40af", marginBottom:8 }}>📋 Webhook Setup Checklist</div>
+          <div style={{ fontSize:12, color:"#1e40af", lineHeight:2 }}>
+            In <strong>Meta App Dashboard → WhatsApp → Configuration</strong>:<br/>
+            1. Callback URL: <code style={{ background:"#dbeafe", padding:"1px 6px", borderRadius:4 }}>https://thynkcom.vercel.app/api/webhook</code><br/>
+            2. Verify Token: <em>same value as your WEBHOOK_VERIFY_TOKEN env var in Vercel</em><br/>
+            3. Click <strong>Verify and Save</strong><br/>
+            4. Under Webhook Fields, click <strong>Manage</strong> → subscribe to <strong>messages</strong>
+          </div>
+        </div>
+
         <div style={{ display:"flex", gap:10, marginTop:16 }}>
-          <button style={{ ...btn(), minWidth:180 }} onClick={save} disabled={saving}>
-            {saving ? "Connecting..." : "🔗 Connect Account"}
+          <button style={{ ...btn(), minWidth:200 }} onClick={testAndSave} disabled={testing}>
+            {testing ? "🔄 Verifying with Meta..." : "🔗 Verify & Connect Account"}
           </button>
         </div>
       </div>
@@ -855,25 +920,48 @@ function ListTemplate() {
 
 // ─── AUTO RESPONDER ───────────────────────────────────────────────
 function AutoResponder() {
-  const STORAGE_KEY = "auto_responders";
-  const [rules, setRules] = useState(() => {
-    const s = localStorage.getItem(STORAGE_KEY);
-    return s ? JSON.parse(s) : [
-      { id:1, keyword:"PRICE",   matchType:"exact",    response:"Our pricing starts at ₹499/mo. Visit our website for details.", active:true  },
-      { id:2, keyword:"SUPPORT", matchType:"contains", response:"Support team available Mon-Fri 9AM-6PM. Email: support@example.com", active:true  },
-      { id:3, keyword:"ORDER",   matchType:"exact",    response:"To track your order, please share your order ID.", active:false },
-    ];
-  });
+  const [rules, setRules]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm]       = useState({ keyword:"", matchType:"contains", response:"", active:true });
+  const [saved, setSaved]   = useState(false);
+  const emptyForm = { keyword:"", matchType:"contains", responseType:"text", response:"", templateName:"", languageCode:"en_US", active:true };
+  const [form, setForm]     = useState(emptyForm);
 
-  const save = (rs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(rs)); setRules(rs); };
-  const toggle = (id) => save(rules.map(r => r.id===id ? {...r, active:!r.active} : r));
-  const remove = (id) => { if (!window.confirm("Delete this rule?")) return; save(rules.filter(r => r.id!==id)); };
+  const loadRules = () => {
+    fetch("/api/auto-responder")
+      .then(r => r.json())
+      .then(data => {
+        setRules(Array.isArray(data) ? data.map(r => ({
+          id: r.id, keyword: r.keyword, matchType: r.match_type,
+          responseType: r.response_type || "text",
+          response: r.response_text || "", templateName: r.template_name || "",
+          languageCode: r.language_code || "en_US", active: r.active,
+        })) : []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  };
+  useEffect(loadRules, []);
+
+  const saveRules = async (rs) => {
+    setSaving(true);
+    await fetch("/api/auto-responder", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ rules: rs }),
+    });
+    setRules(rs); setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const toggle = (id) => saveRules(rules.map(r => r.id===id ? {...r, active:!r.active} : r));
+  const remove = (id) => { if (!window.confirm("Delete this rule?")) return; saveRules(rules.filter(r => r.id!==id)); };
   const add = () => {
-    if (!form.keyword || !form.response) return alert("Keyword and response are required");
-    save([...rules, { ...form, id: Date.now() }]);
-    setForm({ keyword:"", matchType:"contains", response:"", active:true }); setShowAdd(false);
+    if (!form.keyword) return alert("Keyword is required");
+    if (form.responseType === "text" && !form.response) return alert("Response message is required");
+    if (form.responseType === "template" && !form.templateName) return alert("Template name is required");
+    saveRules([...rules, { ...form, id: Date.now() }]);
+    setForm(emptyForm); setShowAdd(false);
   };
 
   return (
@@ -881,9 +969,13 @@ function AutoResponder() {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
         <div>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Auto-Responder</h2>
-          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Automatically reply to incoming messages based on keywords — 24/7</p>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Automatically reply to incoming messages 24/7 — with text or Meta templates</p>
         </div>
-        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Rule</button>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {saved && <span style={{ fontSize:13, color:C.accent, fontWeight:600 }}>✅ Saved</span>}
+          {saving && <span style={{ fontSize:13, color:C.sub }}>Saving...</span>}
+          <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Rule</button>
+        </div>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:22 }}>
@@ -909,78 +1001,273 @@ function AutoResponder() {
               </select>
             </div>
             <div style={{ gridColumn:"1/-1" }}>
-              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>AUTO-RESPONSE MESSAGE *</label>
-              <textarea value={form.response} onChange={e=>setForm({...form,response:e.target.value})} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Your automated reply message..." />
+              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>RESPONSE TYPE</label>
+              <div style={{ display:"flex", gap:10, marginTop:6 }}>
+                {[["text","✏️ Text Message"],["template","📋 Meta Template"]].map(([val,label])=>(
+                  <button key={val} onClick={()=>setForm({...form,responseType:val})} style={{ ...btn(form.responseType===val?"primary":"secondary"), fontSize:13, padding:"8px 16px" }}>{label}</button>
+                ))}
+              </div>
             </div>
+            {form.responseType === "text" && (
+              <div style={{ gridColumn:"1/-1" }}>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>AUTO-RESPONSE MESSAGE *</label>
+                <textarea value={form.response} onChange={e=>setForm({...form,response:e.target.value})} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Your automated reply message..." />
+              </div>
+            )}
+            {form.responseType === "template" && (
+              <>
+                <div>
+                  <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME * (from Meta)</label>
+                  <input value={form.templateName} onChange={e=>setForm({...form,templateName:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. hello_world" />
+                </div>
+                <div>
+                  <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE CODE</label>
+                  <select value={form.languageCode} onChange={e=>setForm({...form,languageCode:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                    <option value="en_US">English (US)</option>
+                    <option value="en_GB">English (UK)</option>
+                    <option value="hi">Hindi</option>
+                    <option value="mr">Marathi</option>
+                    <option value="gu">Gujarati</option>
+                    <option value="ta">Tamil</option>
+                    <option value="te">Telugu</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
           <div style={{ display:"flex", gap:10 }}>
             <button style={btn()} onClick={add}>Save Rule</button>
-            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
+            <button style={btn("ghost")} onClick={()=>{ setShowAdd(false); setForm(emptyForm); }}>Cancel</button>
           </div>
         </div>
       )}
 
-      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {rules.map(r => (
-          <div key={r.id} style={{ ...card, display:"flex", alignItems:"flex-start", gap:14, opacity:r.active?1:0.7 }}>
-            <div style={{ width:42, height:42, borderRadius:10, background:r.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🔄</div>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
-                <span style={pill(C.accent2, C.accentLight)}>Keyword: {r.keyword}</span>
-                <span style={pill(C.blue,"#eff6ff")}>{r.matchType}</span>
-                <Badge status={r.active?"Active":"Paused"} />
+      {loading ? <Loader /> : (
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {rules.map(r => (
+            <div key={r.id} style={{ ...card, display:"flex", alignItems:"flex-start", gap:14, opacity:r.active?1:0.65 }}>
+              <div style={{ width:42, height:42, borderRadius:10, background:r.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
+                {r.responseType === "template" ? "📋" : "🔄"}
               </div>
-              <div style={{ fontSize:13, color:C.sub, lineHeight:1.5 }}>{r.response}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                  <span style={pill(C.accent2, C.accentLight)}>Keyword: {r.keyword}</span>
+                  <span style={pill(C.blue,"#eff6ff")}>{r.matchType}</span>
+                  <span style={pill(r.responseType==="template"?C.purple:C.accent2, r.responseType==="template"?"#f3e8ff":C.accentLight)}>
+                    {r.responseType === "template" ? "📋 Template" : "✏️ Text"}
+                  </span>
+                  <Badge status={r.active?"Active":"Paused"} />
+                </div>
+                {r.responseType === "template"
+                  ? <div style={{ fontSize:13, color:C.sub }}>Template: <strong>{r.templateName}</strong> ({r.languageCode})</div>
+                  : <div style={{ fontSize:13, color:C.sub, lineHeight:1.5 }}>{r.response}</div>
+                }
+              </div>
+              <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                <button onClick={()=>toggle(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px" }}>{r.active?"⏸ Pause":"▶ Enable"}</button>
+                <button onClick={()=>remove(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px", color:C.red }}>🗑</button>
+              </div>
             </div>
-            <div style={{ display:"flex", gap:8, flexShrink:0 }}>
-              <button onClick={()=>toggle(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px" }}>{r.active?"⏸ Pause":"▶ Enable"}</button>
-              <button onClick={()=>remove(r.id)} style={{ ...btn("secondary"), fontSize:12, padding:"6px 12px", color:C.red }}>🗑</button>
-            </div>
-          </div>
-        ))}
-        {rules.length === 0 && <div style={{ ...card, textAlign:"center", padding:"40px", color:C.sub }}>No rules yet. Add your first auto-response rule!</div>}
-      </div>
+          ))}
+          {rules.length === 0 && <div style={{ ...card, textAlign:"center", padding:"40px", color:C.sub }}>No rules yet. Add your first auto-response rule!</div>}
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── CHATBOT ──────────────────────────────────────────────────────
 function ChatBot() {
-  const STORAGE_KEY = "chatbot_flows";
-  const [flows, setFlows] = useState(() => {
-    const s = localStorage.getItem(STORAGE_KEY);
-    return s ? JSON.parse(s) : [
-      { id:1, name:"Lead Qualification", triggers:"Hi, Hello, Start", active:true,  steps:[{ type:"message", content:"Welcome! 👋 What's your name?" },{ type:"collect", content:"Collect: Name" },{ type:"message", content:"Thanks {{name}}! What are you interested in?" },{ type:"route", content:"Route to Sales Team" }] },
-      { id:2, name:"Order Tracking",     triggers:"Track, Order Status", active:true,  steps:[{ type:"message", content:"Please share your Order ID" },{ type:"collect", content:"Collect: Order ID" },{ type:"message", content:"Checking your order status..." },{ type:"route", content:"Lookup & Reply" }] },
-      { id:3, name:"FAQ Bot",            triggers:"FAQ, Help, Support",   active:false, steps:[{ type:"message", content:"How can I help you today?" },{ type:"list", content:"Show FAQ Options" },{ type:"route", content:"Route based on selection" }] },
-    ];
-  });
-  const [showAdd, setShowAdd]   = useState(false);
-  const [form, setForm]         = useState({ name:"", triggers:"" });
-  const [activeFlow, setActiveFlow] = useState(null);
+  const [flows, setFlows]           = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState(false);
+  const [saved, setSaved]           = useState(false);
+  const [showAdd, setShowAdd]       = useState(false);
+  const [activeFlow, setActiveFlow] = useState(null); // id of flow being edited
+  const [form, setForm]             = useState({ name:"", triggers:"" });
+  const emptyStep = { type:"message", content:"", templateName:"", languageCode:"en_US" };
 
-  const save = (fs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(fs)); setFlows(fs); };
-  const toggle = (id) => save(flows.map(f => f.id===id ? {...f, active:!f.active} : f));
-  const remove = (id) => { if (!window.confirm("Delete this flow?")) return; save(flows.filter(f => f.id!==id)); if(activeFlow===id) setActiveFlow(null); };
-  const add = () => {
-    if (!form.name || !form.triggers) return alert("Name and triggers are required");
-    save([...flows, { id: Date.now(), ...form, active:true, steps:[{ type:"message", content:"Hello! How can I help?" }] }]);
-    setForm({ name:"", triggers:"" }); setShowAdd(false);
+  const loadFlows = () => {
+    fetch("/api/chatbot-flows")
+      .then(r => r.json())
+      .then(data => { setFlows(Array.isArray(data) ? data : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+  useEffect(loadFlows, []);
+
+  const persistFlows = async (fs) => {
+    setSaving(true);
+    await fetch("/api/chatbot-flows", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ flows: fs }),
+    });
+    setFlows(fs); setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   };
 
-  const stepColors = { message:C.accent, collect:C.blue, list:C.purple, route:C.yellow };
-  const stepIcons  = { message:"💬", collect:"📋", list:"📑", route:"🔀" };
+  const toggleFlow  = (id) => persistFlows(flows.map(f => f.id===id ? {...f, active:!f.active} : f));
+  const removeFlow  = (id) => { if (!window.confirm("Delete this flow?")) return; persistFlows(flows.filter(f => f.id!==id)); if(activeFlow===id) setActiveFlow(null); };
+  const addFlow     = () => {
+    if (!form.name || !form.triggers) return alert("Name and triggers are required");
+    const newFlow = { id: Date.now(), ...form, active:true, steps:[{ type:"message", content:"Hello! How can I help you today? 👋", templateName:"", languageCode:"en_US" }] };
+    persistFlows([...flows, newFlow]);
+    setForm({ name:"", triggers:"" }); setShowAdd(false); setActiveFlow(newFlow.id);
+  };
+
+  const updateFlow = (id, updated) => persistFlows(flows.map(f => f.id===id ? updated : f));
+
+  // Step helpers
+  const addStep    = (flowId) => { const f = flows.find(x=>x.id===flowId); updateFlow(flowId, {...f, steps:[...f.steps, {...emptyStep}]}); };
+  const removeStep = (flowId, idx) => { const f = flows.find(x=>x.id===flowId); updateFlow(flowId, {...f, steps:f.steps.filter((_,i)=>i!==idx)}); };
+  const moveStep   = (flowId, idx, dir) => {
+    const f = [...flows.find(x=>x.id===flowId).steps];
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= f.length) return;
+    [f[idx], f[newIdx]] = [f[newIdx], f[idx]];
+    updateFlow(flowId, {...flows.find(x=>x.id===flowId), steps:f});
+  };
+  const updateStep = (flowId, idx, patch) => {
+    const f = flows.find(x=>x.id===flowId);
+    const steps = f.steps.map((s,i) => i===idx ? {...s,...patch} : s);
+    updateFlow(flowId, {...f, steps});
+  };
+
+  const stepTypeColors = { message:C.accent, template:C.purple, collect:C.blue, delay:C.yellow, end:"#ef4444" };
+  const stepTypeIcons  = { message:"💬", template:"📋", collect:"📝", delay:"⏱", end:"🏁" };
+  const stepTypes      = ["message","template","collect","delay","end"];
 
   const current = flows.find(f => f.id === activeFlow);
 
+  if (activeFlow && current) return (
+    <div>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+        <button onClick={()=>setActiveFlow(null)} style={{ ...btn("secondary"), padding:"8px 14px", fontSize:13 }}>← Back</button>
+        <div style={{ flex:1 }}>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>🤖 {current.name}</h2>
+          <p style={{ margin:"2px 0 0", fontSize:12, color:C.sub }}>Triggers: {current.triggers} · {current.steps.length} steps</p>
+        </div>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {saving && <span style={{ fontSize:13, color:C.sub }}>Saving...</span>}
+          {saved  && <span style={{ fontSize:13, color:C.accent, fontWeight:600 }}>✅ Saved</span>}
+          <button style={btn()} onClick={()=>addStep(current.id)}>+ Add Step</button>
+        </div>
+      </div>
+
+      {/* Flow builder — vertical drag-like list */}
+      <div style={{ display:"flex", flexDirection:"column", gap:0, position:"relative" }}>
+        {/* Start node */}
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:0 }}>
+          <div style={{ padding:"8px 20px", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, borderRadius:20, color:"white", fontWeight:700, fontSize:13 }}>
+            🚀 Trigger: "{current.triggers}"
+          </div>
+          <div style={{ width:2, height:20, background:C.accent+"60" }} />
+        </div>
+
+        {current.steps.map((step, idx) => (
+          <div key={idx} style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+            {/* Step card */}
+            <div style={{ width:"100%", maxWidth:620, ...card, border:`2px solid ${stepTypeColors[step.type]||C.border}`, position:"relative" }}>
+              {/* Step header */}
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:(stepTypeColors[step.type]||C.blue)+"22", border:`2px solid ${stepTypeColors[step.type]||C.blue}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+                  {stepTypeIcons[step.type]||"⚡"}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:13 }}>Step {idx+1}</div>
+                  <select value={step.type} onChange={e=>updateStep(current.id,idx,{type:e.target.value,content:"",templateName:"",languageCode:"en_US"})} style={{ ...inp, padding:"4px 8px", fontSize:12, marginTop:2, width:"auto" }}>
+                    {stepTypes.map(t => <option key={t} value={t}>{stepTypeIcons[t]} {t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                  </select>
+                </div>
+                {/* Move up/down/delete */}
+                <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                  <button onClick={()=>moveStep(current.id,idx,-1)} disabled={idx===0} style={{ ...btn("secondary"), padding:"4px 8px", fontSize:12, opacity:idx===0?0.4:1 }}>↑</button>
+                  <button onClick={()=>moveStep(current.id,idx,1)} disabled={idx===current.steps.length-1} style={{ ...btn("secondary"), padding:"4px 8px", fontSize:12, opacity:idx===current.steps.length-1?0.4:1 }}>↓</button>
+                  <button onClick={()=>removeStep(current.id,idx)} style={{ ...btn("secondary"), padding:"4px 8px", fontSize:12, color:C.red }}>🗑</button>
+                </div>
+              </div>
+
+              {/* Step content based on type */}
+              {step.type === "message" && (
+                <textarea value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={{ ...inp, minHeight:70, resize:"vertical" }} placeholder="Type the message to send..." />
+              )}
+              {step.type === "template" && (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                  <div>
+                    <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label>
+                    <input value={step.templateName||""} onChange={e=>updateStep(current.id,idx,{templateName:e.target.value})} style={{ ...inp, marginTop:4 }} placeholder="e.g. hello_world" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>LANGUAGE CODE</label>
+                    <select value={step.languageCode||"en_US"} onChange={e=>updateStep(current.id,idx,{languageCode:e.target.value})} style={{ ...inp, marginTop:4 }}>
+                      <option value="en_US">English (US)</option>
+                      <option value="hi">Hindi</option>
+                      <option value="mr">Marathi</option>
+                      <option value="gu">Gujarati</option>
+                      <option value="ta">Tamil</option>
+                      <option value="te">Telugu</option>
+                    </select>
+                  </div>
+                  <div style={{ gridColumn:"1/-1" }}>
+                    <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>DESCRIPTION (optional note)</label>
+                    <input value={step.content||""} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={{ ...inp, marginTop:4 }} placeholder="e.g. Send welcome template" />
+                  </div>
+                </div>
+              )}
+              {step.type === "collect" && (
+                <div>
+                  <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>WHAT TO COLLECT (label)</label>
+                  <input value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={{ ...inp, marginTop:4 }} placeholder="e.g. Name, Phone, Order ID" />
+                  <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>The user's reply will be stored as a variable with this name</div>
+                </div>
+              )}
+              {step.type === "delay" && (
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <input type="number" min={1} max={60} value={step.content||"5"} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={{ ...inp, width:80 }} />
+                  <span style={{ fontSize:13, color:C.sub }}>seconds before next step</span>
+                </div>
+              )}
+              {step.type === "end" && (
+                <input value={step.content} onChange={e=>updateStep(current.id,idx,{content:e.target.value})} style={inp} placeholder="Optional ending message (e.g. Thanks! Our team will reach out.)" />
+              )}
+            </div>
+            {/* Arrow between steps */}
+            {idx < current.steps.length-1 && (
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+                <div style={{ width:2, height:16, background:C.accent+"60" }} />
+                <div style={{ fontSize:14, color:C.accent }}>▼</div>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* End node */}
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginTop:0 }}>
+          <div style={{ width:2, height:20, background:"#ef444460" }} />
+          <div style={{ padding:"8px 20px", background:"#fef2f2", border:"2px solid #fecaca", borderRadius:20, color:"#ef4444", fontWeight:700, fontSize:13 }}>🏁 End of Flow</div>
+        </div>
+      </div>
+
+      {/* Add step button at bottom */}
+      <div style={{ textAlign:"center", marginTop:20 }}>
+        <button style={btn()} onClick={()=>addStep(current.id)}>+ Add Step</button>
+      </div>
+    </div>
+  );
+
+  // ── Flows list view ──
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
         <div>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>ChatBot Builder</h2>
-          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Build automated conversation flows triggered by keywords</p>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Build automated conversation flows — with text messages and Meta templates</p>
         </div>
-        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {saving && <span style={{ fontSize:13, color:C.sub }}>Saving...</span>}
+          {saved  && <span style={{ fontSize:13, color:C.accent, fontWeight:600 }}>✅ Saved</span>}
+          <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
+        </div>
       </div>
 
       {showAdd && (
@@ -997,53 +1284,38 @@ function ChatBot() {
             </div>
           </div>
           <div style={{ display:"flex", gap:10, marginTop:14 }}>
-            <button style={btn()} onClick={add}>Create Flow</button>
+            <button style={btn()} onClick={addFlow}>Create & Edit Flow</button>
             <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
           </div>
         </div>
       )}
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:22 }}>
-        {flows.map(f => (
-          <div key={f.id} style={{ ...card, borderLeft:`4px solid ${f.active?C.accent:C.border}`, cursor:"pointer" }} onClick={()=>setActiveFlow(f.id===activeFlow?null:f.id)}>
-            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:12 }}>
-              <div style={{ width:40, height:40, borderRadius:10, background:f.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🤖</div>
-              <Badge status={f.active?"Active":"Paused"} />
-            </div>
-            <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{f.name}</div>
-            <div style={{ fontSize:12, color:C.sub, marginBottom:4 }}>Triggers: {f.triggers}</div>
-            <div style={{ fontSize:12, color:C.sub, marginBottom:14 }}>{f.steps.length} steps in flow</div>
-            <div style={{ display:"flex", gap:8 }}>
-              <button onClick={e=>{e.stopPropagation();setActiveFlow(f.id===activeFlow?null:f.id);}} style={{ ...btn("secondary"), flex:1, fontSize:12 }}>✏️ Edit</button>
-              <button onClick={e=>{e.stopPropagation();toggle(f.id);}} style={{ ...btn(), flex:1, fontSize:12 }}>{f.active?"⏸ Pause":"▶ Activate"}</button>
-              <button onClick={e=>{e.stopPropagation();remove(f.id);}} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"10px 10px" }}>🗑</button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {activeFlow && current && (
-        <div style={card}>
-          <h3 style={{ margin:"0 0 18px", fontSize:15, fontWeight:700 }}>📊 Flow Preview — {current.name}</h3>
-          <div style={{ display:"flex", gap:0, alignItems:"flex-start", overflowX:"auto", paddingBottom:10 }}>
-            {current.steps.map((step, i) => (
-              <div key={i} style={{ display:"flex", alignItems:"center", flexShrink:0 }}>
-                <div style={{ textAlign:"center", minWidth:130 }}>
-                  <div style={{ width:48, height:48, borderRadius:12, background:(stepColors[step.type]||C.blue)+"22", border:`2px solid ${stepColors[step.type]||C.blue}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, margin:"0 auto 8px" }}>
-                    {stepIcons[step.type]||"⚡"}
-                  </div>
-                  <div style={{ fontWeight:700, fontSize:12, marginBottom:3 }}>Step {i+1}</div>
-                  <div style={{ fontSize:11, color:C.sub, lineHeight:1.4 }}>{step.content}</div>
-                </div>
-                {i < current.steps.length-1 && (
-                  <div style={{ width:40, textAlign:"center", color:C.sub, flexShrink:0, fontSize:18 }}>→</div>
-                )}
+      {loading ? <Loader /> : (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14 }}>
+          {flows.map(f => (
+            <div key={f.id} style={{ ...card, borderLeft:`4px solid ${f.active?C.accent:C.border}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:12 }}>
+                <div style={{ width:40, height:40, borderRadius:10, background:f.active?C.accentLight:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🤖</div>
+                <Badge status={f.active?"Active":"Paused"} />
               </div>
-            ))}
-          </div>
-          <div style={{ marginTop:16, padding:"10px 14px", background:"#fffbeb", borderRadius:10, border:"1px solid #fde68a", fontSize:12, color:"#92400e" }}>
-            💡 Full flow builder with drag-and-drop steps coming soon. For now, flows are triggered by keywords and respond automatically.
-          </div>
+              <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{f.name}</div>
+              <div style={{ fontSize:12, color:C.sub, marginBottom:2 }}>Triggers: {f.triggers}</div>
+              <div style={{ fontSize:12, color:C.sub, marginBottom:14 }}>{f.steps?.length||0} steps · {f.steps?.filter(s=>s.type==="template").length||0} templates</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={()=>setActiveFlow(f.id)} style={{ ...btn(), flex:1, fontSize:12 }}>✏️ Edit Flow</button>
+                <button onClick={()=>toggleFlow(f.id)} style={{ ...btn("secondary"), flex:1, fontSize:12 }}>{f.active?"⏸ Pause":"▶ Activate"}</button>
+                <button onClick={()=>removeFlow(f.id)} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"10px 10px" }}>🗑</button>
+              </div>
+            </div>
+          ))}
+          {flows.length === 0 && (
+            <div style={{ gridColumn:"1/-1", ...card, textAlign:"center", padding:"50px 20px" }}>
+              <div style={{ fontSize:48, marginBottom:12 }}>🤖</div>
+              <h3 style={{ margin:"0 0 8px" }}>No flows yet</h3>
+              <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Create a flow to start automating your conversations</p>
+              <button style={btn()} onClick={()=>setShowAdd(true)}>+ Create First Flow</button>
+            </div>
+          )}
         </div>
       )}
     </div>
