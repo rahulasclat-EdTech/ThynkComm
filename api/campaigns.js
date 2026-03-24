@@ -1,21 +1,16 @@
-// api/campaigns.js
-// GET  /api/campaigns       → fetch all campaigns
-// POST /api/campaigns       → create & send a campaign
-
-import { createClient } from "@supabase/supabase-js";
+const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // GET — fetch all campaigns
   if (req.method === "GET") {
     const { data, error } = await supabase
       .from("campaigns")
@@ -26,13 +21,11 @@ export default async function handler(req, res) {
     return res.status(200).json(data);
   }
 
-  // POST — create campaign and send messages
   if (req.method === "POST") {
     const { name, contactIds, message, templateName, languageCode } = req.body;
     if (!name || !contactIds?.length)
       return res.status(400).json({ error: "name and contactIds are required" });
 
-    // Fetch opted-in contacts
     const { data: contacts, error: cErr } = await supabase
       .from("contacts")
       .select("*")
@@ -43,7 +36,6 @@ export default async function handler(req, res) {
     if (!contacts.length)
       return res.status(400).json({ error: "No opted-in contacts found" });
 
-    // Create campaign record
     const { data: campaign, error: campErr } = await supabase
       .from("campaigns")
       .insert([{ name, status: "Running", total: contacts.length, sent: 0, delivered: 0, failed: 0 }])
@@ -52,7 +44,6 @@ export default async function handler(req, res) {
 
     if (campErr) return res.status(500).json({ error: campErr.message });
 
-    // Send to each contact
     let sent = 0, failed = 0;
     for (const contact of contacts) {
       try {
@@ -84,7 +75,6 @@ export default async function handler(req, res) {
 
         const rData = await r.json();
 
-        // Log each message
         await supabase.from("messages").insert([{
           to_number: contact.phone,
           body: message || templateName,
@@ -99,7 +89,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // Update campaign status
     await supabase
       .from("campaigns")
       .update({ status: "Completed", sent, failed })
@@ -109,4 +98,4 @@ export default async function handler(req, res) {
   }
 
   res.status(405).json({ error: "Method not allowed" });
-}
+};
