@@ -76,8 +76,17 @@ async function handleChatBot(from, msgText) {
     if (triggers.some(t => text === t || text.includes(t))) {
       const steps = flow.steps || [];
       if (!steps.length) continue;
-      await supabase.from("chatbot_sessions").insert([{ phone: from, flow_id: flow.id, current_step: 1, status: "active" }]);
+
+      // Send step 0 immediately as the trigger response
       await sendStepMessage(from, steps[0]);
+
+      if (steps.length > 1) {
+        // Store next step index as 1 — session resumes from steps[1] on next message
+        await supabase.from("chatbot_sessions").insert([{
+          phone: from, flow_id: flow.id, current_step: 1, status: "active"
+        }]);
+      }
+      // If only 1 step, no session needed — flow is complete after the trigger response
       return true;
     }
   }
