@@ -1025,62 +1025,7 @@ function ListTemplate() {
               <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>BODY *</label>
               <textarea value={form.body} onChange={e=>setForm({...form,body:e.target.value})} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Please select from the options below:" />
             </div>
-            {/* CTA Buttons */}
-<div style={{ marginBottom:14 }}>
-  <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>
-    CTA Buttons (Optional)
-    <span style={{ fontSize:11, color:C.sub, fontWeight:400, marginLeft:8 }}>
-      Add URL or phone number buttons (max 2)
-    </span>
-  </div>
-  {form.ctaButtons.map((btn, bIdx) => (
-    <div key={bIdx} style={{ display:"grid", gridTemplateColumns:"120px 1fr 1fr auto", gap:10, marginBottom:8, alignItems:"center" }}>
-      <select
-        value={btn.type}
-        onChange={e => {
-          const ctaButtons = [...form.ctaButtons];
-          ctaButtons[bIdx].type = e.target.value;
-          setForm({...form, ctaButtons});
-        }}
-        style={inp}
-      >
-        <option value="url">🌐 URL</option>
-        <option value="phone">📞 Phone</option>
-      </select>
-      <input
-        value={btn.text}
-        onChange={e => {
-          const ctaButtons = [...form.ctaButtons];
-          ctaButtons[bIdx].text = e.target.value;
-          setForm({...form, ctaButtons});
-        }}
-        style={inp}
-        placeholder="Button label"
-      />
-      <input
-        value={btn.value}
-        onChange={e => {
-          const ctaButtons = [...form.ctaButtons];
-          ctaButtons[bIdx].value = e.target.value;
-          setForm({...form, ctaButtons});
-        }}
-        style={inp}
-        placeholder={btn.type === "url" ? "https://example.com" : "+919999999999"}
-      />
-      <button
-        onClick={() => setForm({...form, ctaButtons: form.ctaButtons.filter((_,i) => i !== bIdx)})}
-        style={{ ...btn_style("ghost"), color:C.red, padding:"10px 12px", fontSize:16 }}
-      >✕</button>
-    </div>
-  ))}
-  {form.ctaButtons.length < 2 && (
-    <button
-      onClick={() => setForm({...form, ctaButtons: [...form.ctaButtons, { type:"url", text:"", value:"" }]})}
-      style={{ ...btn_style("secondary"), fontSize:13, marginTop:4 }}
-    >+ Add CTA Button</button>
-  )}
-</div>
-            <div>
+                       <div>
               <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>FOOTER (optional)</label>
               <input value={form.footer} onChange={e=>setForm({...form,footer:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Powered by WASend" />
             </div>
