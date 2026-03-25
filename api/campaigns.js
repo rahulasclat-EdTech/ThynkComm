@@ -6,7 +6,9 @@ const supabase = createClient(
 );
 
 // Shared send logic — used by both immediate and cron-triggered sends
-async function sendCampaign(campaign, contacts) {
+async function sendCampaign(campaign, contacts, creds = {}) {
+  const token   = creds.token   || process.env.WHATSAPP_TOKEN;
+  const phoneId = creds.phoneId || process.env.PHONE_NUMBER_ID;
   let sent = 0, failed = 0;
 
   for (const contact of contacts) {
@@ -26,11 +28,11 @@ async function sendCampaign(campaign, contacts) {
           };
 
       const r = await fetch(
-        `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`,
+        `https://graph.facebook.com/v19.0/${phoneId}/messages`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
@@ -59,7 +61,7 @@ async function sendCampaign(campaign, contacts) {
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-wa-token, x-wa-phone-id");
   if (req.method === "OPTIONS") return res.status(200).end();
 
   // GET — fetch all campaigns
@@ -134,7 +136,11 @@ module.exports = async function handler(req, res) {
 
     const { sent, failed } = await sendCampaign(
       { message, template_name: templateName, language_code: languageCode },
-      contacts
+      contacts,
+      {
+        token:   req.headers["x-wa-token"]    || process.env.WHATSAPP_TOKEN,
+        phoneId: req.headers["x-wa-phone-id"] || process.env.PHONE_NUMBER_ID,
+      }
     );
 
     await supabase
