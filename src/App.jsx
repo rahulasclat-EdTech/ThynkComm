@@ -567,6 +567,62 @@ function CampaignSummary() {
 
   const filtered = campaigns.filter(c => c.name?.toLowerCase().includes(search.toLowerCase()));
 
+  const fmtDateTime = (ts) => {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    return d.toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })
+      + " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
+  };
+
+  const downloadExcel = (camp) => {
+    const rows = [
+      ["Campaign Name", camp.name],
+      ["Status", camp.status],
+      ["Start Time", fmtDateTime(camp.created_at)],
+      ["End Time", fmtDateTime(camp.updated_at || camp.created_at)],
+      ["Total", camp.total || 0],
+      ["Sent", camp.sent || 0],
+      ["Delivered", camp.delivered || 0],
+      ["Failed", camp.failed || 0],
+      [],
+      ["Metric", "Value"],
+      ["Sent", camp.sent || 0],
+      ["Delivered", camp.delivered || 0],
+      ["Failed", camp.failed || 0],
+      ["Total", camp.total || 0],
+    ];
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '\"')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `campaign_${camp.name.replace(/\s+/g,"_")}_log.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadAllExcel = () => {
+    const headers = ["Campaign", "Status", "Start Time", "End Time", "Sent", "Delivered", "Failed", "Total"];
+    const rows = filtered.map(c => [
+      c.name,
+      c.status,
+      fmtDateTime(c.created_at),
+      fmtDateTime(c.updated_at || c.created_at),
+      c.sent || 0,
+      c.delivered || 0,
+      c.failed || 0,
+      c.total || 0,
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '\"')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `all_campaigns_log.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <h2 style={{ margin:"0 0 18px", fontSize:18, fontWeight:800 }}>Campaign Summary</h2>
@@ -577,27 +633,47 @@ function CampaignSummary() {
         <Stat icon="⏸" label="Paused"    value={campaigns.filter(c=>c.status==="Paused").length}    color={C.yellow} />
       </div>
       <div style={card}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:10 }}>
           <h3 style={{ margin:0, fontSize:14, fontWeight:700 }}>All Campaigns</h3>
-          <input placeholder="🔍 Search..." value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, width:220, fontSize:13 }} />
+          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+            <input placeholder="🔍 Search..." value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, width:200, fontSize:13 }} />
+            <button onClick={downloadAllExcel} style={{ ...btn("secondary"), fontSize:12, padding:"8px 14px", whiteSpace:"nowrap" }}>
+              ⬇️ Export All
+            </button>
+          </div>
         </div>
         {loading ? <Loader /> : (
-          <table style={{ width:"100%", borderCollapse:"collapse" }}>
-            <thead><tr>{["Campaign","Sent","Delivered","Failed","Date","Status"].map(h=><th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}` }}>{h}</th>)}</tr></thead>
-            <tbody>
-              {filtered.map(c=>(
-                <tr key={c.id} style={{ borderBottom:`1px solid ${C.border}` }}>
-                  <td style={{ padding:"12px", fontWeight:600 }}>{c.name}</td>
-                  <td style={{ padding:"12px", fontWeight:600 }}>{(c.sent||0).toLocaleString()}</td>
-                  <td style={{ padding:"12px", color:C.accent, fontWeight:600 }}>{(c.delivered||0).toLocaleString()}</td>
-                  <td style={{ padding:"12px", color:C.red, fontWeight:600 }}>{c.failed||0}</td>
-                  <td style={{ padding:"12px", fontSize:13, color:C.sub }}>{c.created_at?.split("T")[0]}</td>
-                  <td style={{ padding:"12px" }}><Badge status={c.status}/></td>
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
+              <thead>
+                <tr>
+                  {["Campaign","Start Time","End Time","Sent","Delivered","Failed","Status","Log"].map(h=>(
+                    <th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-              {filtered.length===0 && <tr><td colSpan={6} style={{ padding:20, textAlign:"center", color:C.sub }}>No campaigns yet.</td></tr>}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map(c=>(
+                  <tr key={c.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                    <td style={{ padding:"12px", fontWeight:600 }}>{c.name}</td>
+                    <td style={{ padding:"12px", fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>{fmtDateTime(c.created_at)}</td>
+                    <td style={{ padding:"12px", fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>{fmtDateTime(c.updated_at || c.created_at)}</td>
+                    <td style={{ padding:"12px", fontWeight:600 }}>{(c.sent||0).toLocaleString()}</td>
+                    <td style={{ padding:"12px", color:C.accent, fontWeight:600 }}>{(c.delivered||0).toLocaleString()}</td>
+                    <td style={{ padding:"12px", color:C.red, fontWeight:600 }}>{c.failed||0}</td>
+                    <td style={{ padding:"12px" }}><Badge status={c.status}/></td>
+                    <td style={{ padding:"12px" }}>
+                      <button onClick={()=>downloadExcel(c)}
+                        style={{ ...btn("secondary"), fontSize:11, padding:"5px 10px", whiteSpace:"nowrap" }}>
+                        ⬇️ CSV
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filtered.length===0 && <tr><td colSpan={8} style={{ padding:20, textAlign:"center", color:C.sub }}>No campaigns yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
@@ -656,6 +732,7 @@ function SendSingle() {
 
 // ─── CREATE CAMPAIGN ──────────────────────────────────────────────
 function CreateCampaign() {
+  const { templates, loading: tplLoading } = useTemplates();
   const [step, setStep]             = useState(1);
   const [contacts, setContacts]     = useState([]);
   const [groups, setGroups]         = useState([]);
@@ -718,7 +795,7 @@ function CreateCampaign() {
         ))}
       </div>
       {step===1 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Campaign Name</h3><input value={campaignName} onChange={e=>setCampaignName(e.target.value)} style={inp} placeholder="e.g. Diwali Sale 2025" /><button style={{ ...btn(), marginTop:14 }} onClick={()=>{ if(!campaignName) return alert("Enter a campaign name"); setStep(2); }}>Continue →</button></div>)}
-      {step===2 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(<button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{msgType==="text"&&(<div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label><textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your message..." /><div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div></div>)}{msgType==="template"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>⚠️ Templates must be pre-approved by Meta.</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label><input value={templateName} onChange={e=>setTemplateName(e.target.value)} style={{ ...inp, marginTop:6 }} placeholder="e.g. hello_world" /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label><select value={templateLang} onChange={e=>setTemplateLang(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="en_US">English (US)</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="ta">Tamil</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
+      {step===2 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(<button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{msgType==="text"&&(<div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label><textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your message..." /><div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div></div>)}{msgType==="template"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>⚠️ Templates must be pre-approved by Meta. Only APPROVED templates will appear below.</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>{tplLoading ? (<div style={{ fontSize:12, color:C.sub, marginTop:8, padding:"10px 14px", background:C.bg, borderRadius:10 }}>⏳ Loading templates from Meta...</div>) : (<select value={templateName} onChange={e=>{ const t=templates.find(x=>x.name===e.target.value); setTemplateName(e.target.value); if(t) setTemplateLang(t.language||"en_US"); }} style={{ ...inp, marginTop:6 }}><option value="">— Select an approved template —</option>{templates.map(t=>(<option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>))}</select>)}{templateName && templates.find(t=>t.name===templateName) && (<div style={{ marginTop:8, padding:"10px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2, border:`1px solid ${C.accent}30` }}><strong>Preview:</strong> {templates.find(t=>t.name===templateName)?.preview || "No preview available"}</div>)}</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label><select value={templateLang} onChange={e=>setTemplateLang(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="en_US">English (US)</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="ta">Tamil</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
       {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:"white" }}><div style={{ fontWeight:700 }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
       {step===4 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Schedule</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["now","⚡ Send Now"],["scheduled","📅 Schedule Later"]].map(([val,label])=>(<button key={val} onClick={()=>setScheduleType(val)} style={{ ...btn(scheduleType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{scheduleType==="scheduled"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DATE *</label><input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={e=>setScheduleDate(e.target.value)} style={{ ...inp, marginTop:6 }} /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIME *</label><input type="time" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} style={{ ...inp, marginTop:6 }} /></div></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIMEZONE</label><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="Asia/Kolkata">India (IST) UTC+5:30</option><option value="Asia/Dubai">Dubai (GST) UTC+4</option><option value="Europe/London">London (GMT) UTC+0</option><option value="America/New_York">New York (ET) UTC-5</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(3)}>← Back</button><button style={btn()} onClick={()=>setStep(5)}>Continue →</button></div></div>)}
       {step===5 && (<div style={card}><h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>Review & Send</h3><div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>{[["Campaign Name",campaignName],["Message Type",msgType==="template"?`Template: ${templateName}` : "Custom Text"],["Contact Group",currentGroup?.name||"—"],["Recipients",`${groupContacts.length} opted-in contacts`],["Schedule",scheduleType==="now"?"⚡ Send Now":`📅 ${scheduleDate} at ${scheduleTime}`]].map(([label,value])=>(<div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", background:C.bg, borderRadius:9 }}><span style={{ color:C.sub, fontSize:13 }}>{label}</span><span style={{ fontWeight:700, fontSize:13 }}>{value}</span></div>))}{msgType==="text"&&(<div style={{ padding:"10px 14px", background:C.bg, borderRadius:9 }}><div style={{ color:C.sub, fontSize:13, marginBottom:4 }}>Message Preview</div><div style={{ fontSize:13, whiteSpace:"pre-wrap" }}>{message}</div></div>)}</div>{status==="success"&&result&&(<div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontWeight:700, color:C.accent2, marginBottom:4 }}>✅ Campaign Sent!</div><div style={{ fontSize:13, color:C.sub }}>Sent: {result.sent} | Failed: {result.failed}</div></div>)}{status==="error"&&<ErrorBox msg="Something went wrong. Check API credentials." />}<div style={{ display:"flex", gap:10 }}><button style={btn("secondary")} onClick={()=>setStep(4)}>← Back</button><button style={{ ...btn(), minWidth:180 }} onClick={send} disabled={status==="sending"}>{status==="sending"?"⏳ Sending...":"🚀 Launch Campaign"}</button></div></div>)}
@@ -1985,7 +2062,7 @@ function LiveChat() {
     <div style={{ display:"flex", height:"calc(100vh - 110px)", gap:0, borderRadius:14, overflow:"hidden", border:`1px solid ${C.border}` }}>
 
       {/* ── Left panel — conversation list ── */}
-      <div style={{ width:320, flexShrink:0, background:"white", borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column" }}>
+      <div style={{ width:320, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}40`, display:"flex", flexDirection:"column" }}>
         {/* Header */}
         <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}` }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
@@ -2008,8 +2085,8 @@ function LiveChat() {
             </div>
           ) : filtered.map(conv => (
             <div key={conv.phone} onClick={()=>openConversation(conv.phone)}
-              style={{ padding:"12px 16px", borderBottom:`1px solid ${C.border}`, cursor:"pointer",
-                background:activePhone===conv.phone ? C.accentLight : "white",
+              style={{ padding:"12px 16px", borderBottom:`1px solid ${C.border}40`, cursor:"pointer",
+                background:activePhone===conv.phone ? C.accentLight : "transparent",
                 borderLeft: activePhone===conv.phone ? `3px solid ${C.accent}` : "3px solid transparent" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -2020,7 +2097,7 @@ function LiveChat() {
                   </div>
                   <div>
                     {/* Show real WhatsApp number */}
-                    <div style={{ fontWeight:700, fontSize:13, color:C.text }}>+{conv.phone}</div>
+                    <div style={{ fontWeight:700, fontSize:13, color:"#f0f8ff" }}>+{conv.phone}</div>
                     <div style={{ fontSize:11, color:C.sub }}>{conv.totalMsgs} messages</div>
                   </div>
                 </div>
@@ -2049,7 +2126,7 @@ function LiveChat() {
       ) : (
         <div style={{ flex:1, display:"flex", flexDirection:"column", background:C.bg }}>
           {/* Chat header */}
-          <div style={{ padding:"12px 20px", background:"white", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ padding:"12px 20px", background:C.card, borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               <div style={{ width:40, height:40, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
                 display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800 }}>
@@ -2075,7 +2152,7 @@ function LiveChat() {
               return (
                 <div key={i} style={{ display:"flex", justifyContent:isOut?"flex-end":"flex-start" }}>
                   <div style={{ maxWidth:"65%", padding:"10px 14px", borderRadius:isOut?"14px 14px 4px 14px":"14px 14px 14px 4px",
-                    background:isOut?`linear-gradient(135deg,${C.accent},${C.accent2})`:"white",
+                    background:isOut?`linear-gradient(135deg,${C.accent},${C.accent2})`:C.card,
                     color:isOut?"white":C.text, fontSize:13, lineHeight:1.5,
                     boxShadow:"0 1px 3px rgba(0,0,0,0.08)", border:isOut?"none":`1px solid ${C.border}` }}>
                     <div>{msg.body}</div>
@@ -2093,7 +2170,7 @@ function LiveChat() {
           </div>
 
           {/* Reply box */}
-          <div style={{ background:"white", borderTop:`1px solid ${C.border}`, padding:"14px 20px" }}>
+          <div style={{ background:C.card, borderTop:`1px solid ${C.border}`, padding:"14px 20px" }}>
             {/* Reply type toggle */}
             <div style={{ display:"flex", gap:8, marginBottom:12 }}>
               {[["text","✏️ Text"],["template","📋 Template"]].map(([val,label])=>(
