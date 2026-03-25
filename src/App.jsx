@@ -575,6 +575,17 @@ function CampaignSummary() {
   };
 
  const downloadExcel = async (camp) => {
+  // Pull contacts from localStorage to map IDs → phone+name
+  const allContacts = (() => {
+    try { return JSON.parse(localStorage.getItem("contacts") || "[]"); } catch { return []; }
+  })();
+  const contactMap = {};
+  allContacts.forEach(c => { if (c.id) contactMap[c.id] = c; });
+
+  // Also build a phone→name map for messages that carry to_number
+  const phoneToName = {};
+  allContacts.forEach(c => { if (c.phone) phoneToName[c.phone] = c.name || ""; });
+
   const rows = [
     ["CAMPAIGN DETAIL REPORT"],
     [],
@@ -600,6 +611,9 @@ function CampaignSummary() {
     const msgs = await res.json();
     if (Array.isArray(msgs) && msgs.length > 0) {
       msgs.forEach((msg, i) => {
+        const phone = msg.to_number || msg.from_number || "-";
+        // Resolve name: try msg fields first, then phone-to-name map
+        const name = msg.contact_name || phoneToName[phone] || "-";
         const statusLabel =
           msg.status === "read"      ? "Read" :
           msg.status === "delivered" ? "Delivered" :
@@ -608,8 +622,8 @@ function CampaignSummary() {
           msg.status || "Sent";
         rows.push([
           i + 1,
-          msg.to_number || msg.from_number || "-",
-          msg.contact_name || "-",
+          phone,
+          name,
           statusLabel,
           (msg.status === "delivered" || msg.status === "read") ? "Yes" : "No",
           msg.status === "read" ? "Yes" : "No",
@@ -618,10 +632,33 @@ function CampaignSummary() {
         ]);
       });
     } else {
+      // No API messages — use contactIds stored in campaign or contacts from the group
+      const campaignContactIds = camp.contactIds || [];
+      const resolvedContacts = campaignContactIds.length > 0
+        ? campaignContactIds.map(id => contactMap[id]).filter(Boolean)
+        : [];
+
       const sentCount = camp.sent || 0;
       const deliveredCount = camp.delivered || 0;
       const failedCount = camp.failed || 0;
-      if (sentCount > 0) {
+
+      if (resolvedContacts.length > 0) {
+        resolvedContacts.forEach((c, i) => {
+          const isDelivered = i < deliveredCount;
+          const isFailed = i >= (resolvedContacts.length - failedCount);
+          const status = isFailed ? "Failed" : isDelivered ? "Delivered" : "Sent";
+          rows.push([
+            i + 1,
+            c.phone || "-",
+            c.name || "-",
+            status,
+            isDelivered ? "Yes" : "No",
+            "No",
+            "-",
+            fmtDateTime(camp.created_at),
+          ]);
+        });
+      } else if (sentCount > 0) {
         for (let i = 1; i <= sentCount; i++) {
           const isDelivered = i <= deliveredCount;
           const isFailed = i > (sentCount - failedCount);
@@ -1015,7 +1052,7 @@ function ListTemplate() {
 
   // CTA button helpers
   const addCTA = () => {
-    if ((form.ctaButtons||[]).length >= 2) return alert("Maximum 2 CTA buttons allowed by WhatsApp");
+    if ((form.ctaButtons||[]).length >= 4) return alert("Maximum 4 CTA buttons allowed");
     setForm({...form, ctaButtons:[...(form.ctaButtons||[]), { type:"url", text:"", value:"" }]});
   };
   const updateCTA = (idx, field, val) => {
@@ -1093,9 +1130,9 @@ function ListTemplate() {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
               <div>
                 <div style={{ fontSize:13, fontWeight:700, color:C.purple }}>🔘 CTA Buttons (optional)</div>
-                <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>Add up to 2 call-to-action buttons (URL or Phone)</div>
+                <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>Add up to 4 call-to-action buttons (URL or Phone)</div>
               </div>
-              {(form.ctaButtons||[]).length < 2 && (
+              {(form.ctaButtons||[]).length < 4 && (
                 <button onClick={addCTA} style={{ ...btn("secondary"), fontSize:12, padding:"6px 14px", border:`1px solid ${C.purple}50`, color:C.purple }}>+ Add CTA Button</button>
               )}
             </div>
