@@ -1,7 +1,7 @@
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-wa-token, x-wa-phone-id");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -9,13 +9,20 @@ module.exports = async function handler(req, res) {
   if (!to || !message)
     return res.status(400).json({ error: "to and message are required" });
 
+  // Prefer credentials sent by the frontend, fall back to env vars
+  const token   = req.headers["x-wa-token"]    || process.env.WHATSAPP_TOKEN;
+  const phoneId = req.headers["x-wa-phone-id"] || process.env.PHONE_NUMBER_ID;
+
+  if (!token || !phoneId)
+    return res.status(400).json({ error: "WhatsApp credentials missing. Add them in the WhatsApp Account page." });
+
   try {
     const response = await fetch(
-      `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`,
+      `https://graph.facebook.com/v19.0/${phoneId}/messages`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
