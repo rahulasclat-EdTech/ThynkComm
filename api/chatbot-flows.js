@@ -39,25 +39,17 @@ module.exports = async function handler(req, res) {
 
     if (delErr) return res.status(500).json({ error: delErr.message });
 
-    // BUG FIX: The original code inserted only name/triggers/active/steps.
-    // It was missing the `id` field, so every save created NEW rows with
-    // fresh auto-generated IDs. When the webhook looked up a flow by
-    // session.flow_id it found the OLD id (now deleted), so step content
-    // was never returned — only the first auto-generated default message.
-    //
-    // Solution: preserve the numeric id from the frontend so the webhook's
+    // FIX: Preserve the numeric id from the frontend so the webhook's
     // chatbot_sessions.flow_id always matches a real row.
+    // Also preserve the full `steps` array including content/templateName fields.
     if (flows.length > 0) {
       const rows = flows.map(f => ({
-        // Keep the id the frontend knows about (could be Date.now() integer)
-        // Supabase will INSERT with this id instead of generating a new one.
         id:       f.id,
         name:     f.name,
         triggers: f.triggers,
         active:   f.active,
         // steps MUST be stored as JSONB — pass the full array as-is.
-        // The original code passed f.steps directly which is correct, but
-        // we make it explicit here.
+        // Each step has: { type, content, templateName, languageCode }
         steps:    Array.isArray(f.steps) ? f.steps : [],
       }));
 
