@@ -18,11 +18,12 @@ module.exports = async function handler(req, res) {
 
     if (phone) {
       // Single conversation thread
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .or(`from_number.eq.${phone},to_number.eq.${phone}`)
-        .order("created_at", { ascending: true });
+     const { data, error } = await supabase
+  .from("messages")
+  .select("*")
+  .or(`from_number.eq.${phone},to_number.eq.${phone}`)
+  .order("created_at", { ascending: true })
+  .limit(500);
 
       if (error) return res.status(500).json({ error: error.message });
       return res.status(200).json(data || []);
@@ -30,9 +31,10 @@ module.exports = async function handler(req, res) {
 
     // All conversations — get latest message per unique phone
     const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .order("created_at", { ascending: false });
+  .from("messages")
+  .select("*")
+  .order("created_at", { ascending: false })
+  .limit(5000);
 
     if (error) return res.status(500).json({ error: error.message });
 
