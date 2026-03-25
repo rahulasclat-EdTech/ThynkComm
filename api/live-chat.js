@@ -1,6 +1,6 @@
 // api/live-chat.js
 // GET  /api/live-chat          → fetch all conversations (grouped by phone)
-// POST /api/live-chat          → admin sends a reply to a user
+// POST /api/live-chat          → admin sends a reply to a user (text or template)
 // GET  /api/live-chat?phone=X  → fetch messages for one conversation
 
 const { createClient } = require("@supabase/supabase-js");
@@ -12,35 +12,34 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-wa-token, x-wa-phone-id");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // GET — fetch conversations or single thread
+  // ── GET — fetch conversations or single thread ────────────────────────────
   if (req.method === "GET") {
     const { phone } = req.query;
 
+    // ── Single conversation thread ──
     if (phone) {
-      // FIX #1: Single conversation thread
-      // The original .or() query string was missing proper PostgREST syntax for
-      // filtering on two different columns. Use the correct filter format.
+      // Decode the phone number in case it was URL-encoded by the frontend
+      const decodedPhone = decodeURIComponent(phone);
+
       const { data, error } = await supabase
         .from("messages")
         .select("*")
-        .or(`from_number.eq.${phone},to_number.eq.${phone}`)
+        .or(`from_number.eq.${decodedPhone},to_number.eq.${decodedPhone}`)
         .order("created_at", { ascending: true })
         .limit(500);
 
       if (error) return res.status(500).json({ error: error.message });
 
-      // FIX #1b: Normalise messages so the frontend always gets direction field.
-      // Some rows inserted by the webhook may not have direction set explicitly.
+      // Normalise direction on every row — some webhook-inserted rows may be missing it
       const normalised = (data || []).map(msg => ({
         ...msg,
-        direction: msg.direction || (msg.from_number === phone ? "inbound" : "outbound"),
+        direction: msg.direction || (msg.from_number === decodedPhone ? "inbound" : "outbound"),
       }));
 
       return res.status(200).json(normalised);
     }
 
-    // All conversations — get latest message per unique phone
-    // FIX #1c: Fetch a larger window so all recent inbound messages are captured.
+    // ── All conversations — latest message per unique phone ──
     const { data, error } = await supabase
       .from("messages")
       .select("*")
@@ -49,25 +48,24 @@ module.exports = async function handler(req, res) {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    // Group by unique phone number (either from_number for inbound or to_number for outbound)
+    // Always return an array so the frontend can safely call Array.isArray()
     const convMap = {};
     for (const msg of data || []) {
-      // Determine the user's phone
       const userPhone = msg.direction === "inbound" ? msg.from_number : msg.to_number;
       if (!userPhone) continue;
       if (!convMap[userPhone]) {
         convMap[userPhone] = {
-          phone:      userPhone,
-          lastMsg:    msg.body,
-          lastTime:   msg.created_at,
-          direction:  msg.direction,
-          unread:     0,
-          totalMsgs:  0,
+          phone:        userPhone,
+          lastMsg:      msg.body,
+          lastTime:     msg.created_at,
+          direction:    msg.direction,
+          unread:       0,
+          totalMsgs:    0,
           contact_name: msg.contact_name || null,
         };
       }
       convMap[userPhone].totalMsgs++;
-      // Count unread: inbound messages that are not yet "read"
+      // Count unread inbound messages
       if (msg.direction === "inbound" && msg.status !== "read") {
         convMap[userPhone].unread++;
       }
@@ -77,23 +75,31 @@ module.exports = async function handler(req, res) {
       (a, b) => new Date(b.lastTime) - new Date(a.lastTime)
     );
 
+    // Always return a plain array — never an object — so the frontend's
+    // Array.isArray(data) check is always satisfied.
     return res.status(200).json(conversations);
   }
 
-  // POST — admin sends reply
+  // ── POST — admin sends reply (text or approved template) ─────────────────
   if (req.method === "POST") {
     const { to, message, templateName, languageCode, replyType } = req.body;
     if (!to) return res.status(400).json({ error: "to (phone number) is required" });
 
     let payload;
+
     if (replyType === "template" && templateName) {
+      // Template send — must be a Meta-approved template
       payload = {
         messaging_product: "whatsapp",
         to,
         type: "template",
-        template: { name: templateName, language: { code: languageCode || "en_US" } },
+        template: {
+          name:     templateName,
+          language: { code: languageCode || "en_US" },
+        },
       };
     } else {
+      // Plain text send
       if (!message) return res.status(400).json({ error: "message is required" });
       payload = {
         messaging_product: "whatsapp",
@@ -108,23 +114,26 @@ module.exports = async function handler(req, res) {
       const phoneId = req.headers["x-wa-phone-id"] || process.env.PHONE_NUMBER_ID;
 
       if (!token || !phoneId)
-        return res.status(400).json({ error: "WhatsApp credentials missing. Add them in the WhatsApp Account page." });
+        return res.status(400).json({
+          error: "WhatsApp credentials missing. Add them in the WhatsApp Account page.",
+        });
 
       const r = await fetch(
         `https://graph.facebook.com/v19.0/${phoneId}/messages`,
         {
-          method: "POST",
+          method:  "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization:  `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
         }
       );
+
       const data = await r.json();
       if (!r.ok) return res.status(400).json({ error: data.error?.message || "Send failed" });
 
-      // Log the outbound reply
+      // Log the outbound reply in Supabase
       await supabase.from("messages").insert([{
         to_number:     to,
         body:          message || `[template: ${templateName}]`,
