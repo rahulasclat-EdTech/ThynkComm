@@ -1334,26 +1334,102 @@ function AutoResponder() {
 }
 
 // ─── CHATBOT ──────────────────────────────────────────────────────
+// FIX #2: Hook that merges Meta-approved templates with locally-created ones.
+// This ensures the template picker in ChatBot shows ALL available templates.
+function useAllTemplates() {
+  const { templates: metaTemplates, loading: metaLoading } = useTemplates();
+  // Load locally created templates from localStorage
+  const localTemplates = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("msg_templates") || "[]");
+    } catch { return []; }
+  })();
+  // Convert local templates to same shape as meta templates
+  const localAsMetaShape = localTemplates.map(t => ({
+    name: t.name,
+    language: "en_US",
+    category: t.category || "Marketing",
+    status: t.status || "Local",
+    preview: t.body || "",
+    isLocal: true,
+  }));
+  // Merge: meta first, then local ones not already in meta list
+  const metaNames = new Set(metaTemplates.map(t => t.name));
+  const combined = [
+    ...metaTemplates,
+    ...localAsMetaShape.filter(t => !metaNames.has(t.name)),
+  ];
+  return { templates: combined, loading: metaLoading };
+}
+
 function ChatBot() {
   const STORAGE_KEY = "chatbot_flows";
-  const { templates, loading: tplLoading } = useTemplates();
-  const [flows, setFlows] = useState(() => {
-    const s = localStorage.getItem(STORAGE_KEY);
-    return s ? JSON.parse(s) : [
-      { id:1, name:"Lead Qualification", triggers:"Hi, Hello, Start", active:true,
-        steps:[
-          { type:"message",  content:"Welcome! 👋 What can I help you with today?" },
-          { type:"collect",  content:"Name" },
-          { type:"message",  content:"Thanks! Our team will reach out shortly." },
-        ]
-      },
-    ];
-  });
+  // FIX #3: Use merged template list so both local and Meta templates appear
+  const { templates: allTemplates, loading: tplLoading } = useAllTemplates();
+  const [flows, setFlows] = useState([]);
   const [showAdd, setShowAdd]       = useState(false);
   const [form, setForm]             = useState({ name:"", triggers:"" });
   const [activeFlow, setActiveFlow] = useState(null);
+  const [syncing, setSyncing]       = useState(false);
+  const [syncMsg, setSyncMsg]       = useState(null);
 
-  const save  = (fs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(fs)); setFlows(fs); };
+  // FIX #2: Load flows from backend on mount (falls back to localStorage)
+  useEffect(() => {
+    fetch("/api/chatbot-flows")
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+          setFlows(data);
+        } else {
+          // fallback to localStorage
+          const s = localStorage.getItem(STORAGE_KEY);
+          if (s) setFlows(JSON.parse(s));
+          else setFlows([
+            { id:1, name:"Lead Qualification", triggers:"Hi, Hello, Start", active:true,
+              steps:[
+                { type:"message",  content:"Welcome! 👋 What can I help you with today?" },
+                { type:"collect",  content:"Name" },
+                { type:"message",  content:"Thanks! Our team will reach out shortly." },
+              ]
+            },
+          ]);
+        }
+      })
+      .catch(() => {
+        const s = localStorage.getItem(STORAGE_KEY);
+        if (s) setFlows(JSON.parse(s));
+      });
+  }, []);
+
+  // FIX #2: save() now ALSO syncs to backend so webhook reads updated steps
+  const save = (fs) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(fs));
+    setFlows(fs);
+  };
+
+  // Sync all flows to Supabase via the backend API
+  const syncToServer = async (fs) => {
+    setSyncing(true); setSyncMsg(null);
+    try {
+      const r = await fetch("/api/chatbot-flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flows: fs }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setSyncMsg({ ok: true, text: "✅ Flows saved to server — webhook will use updated content!" });
+      } else {
+        setSyncMsg({ ok: false, text: `⚠️ Server sync failed: ${d.error}` });
+      }
+    } catch (e) {
+      setSyncMsg({ ok: false, text: `⚠️ Server sync failed: ${e.message}` });
+    }
+    setSyncing(false);
+    setTimeout(() => setSyncMsg(null), 5000);
+  };
+
   const toggle = (id) => save(flows.map(f => f.id===id ? {...f, active:!f.active} : f));
   const remove = (id) => { if (!window.confirm("Delete this flow?")) return; save(flows.filter(f => f.id!==id)); if(activeFlow===id) setActiveFlow(null); };
   const add = () => {
@@ -1384,14 +1460,30 @@ function ChatBot() {
   // ── Flow editor view ──
   if (activeFlow && current) return (
     <div>
-      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
         <button onClick={()=>setActiveFlow(null)} style={{ ...btn("secondary"), padding:"8px 14px", fontSize:13 }}>← Back</button>
         <div style={{ flex:1 }}>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>🤖 {current.name}</h2>
           <p style={{ margin:"2px 0 0", fontSize:12, color:C.sub }}>Triggers: {current.triggers} · {current.steps.length} steps</p>
         </div>
         <button style={btn()} onClick={()=>addStep(current.id)}>+ Add Step</button>
+        {/* FIX #2: Save to Server button — syncs updated step content to Supabase */}
+        <button
+          style={{ ...btn(), background:`linear-gradient(135deg,${C.green},#0a7a5e)`, minWidth:160, fontSize:13 }}
+          onClick={() => syncToServer(flows)}
+          disabled={syncing}
+        >
+          {syncing ? "⏳ Saving..." : "☁️ Save to Server"}
+        </button>
       </div>
+      {syncMsg && (
+        <div style={{ padding:"10px 16px", borderRadius:10, marginBottom:12, fontSize:13, fontWeight:600,
+          background: syncMsg.ok ? C.accentLight : "#ff5c7a20",
+          border: `1px solid ${syncMsg.ok ? C.accent : C.red}`,
+          color: syncMsg.ok ? C.accent2 : C.red }}>
+          {syncMsg.text}
+        </div>
+      )}
 
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
         {/* Start node */}
@@ -1428,11 +1520,47 @@ function ChatBot() {
                   style={{ ...inp, minHeight:70, resize:"vertical" }} placeholder="Type the message to send to user..." />
               )}
               {step.type === "template" && (
-                <TemplatePicker
-                  value={step.templateName||""} langValue={step.languageCode||"en_US"}
-                  onChange={v=>updateStep(current.id,idx,{templateName:v})}
-                  onLangChange={v=>updateStep(current.id,idx,{languageCode:v})}
-                />
+                // FIX #3: Use allTemplates (local + Meta) instead of TemplatePicker which only shows Meta
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  <div>
+                    <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>
+                    {tplLoading && <div style={{ fontSize:12, color:C.sub, marginTop:6 }}>⏳ Loading templates...</div>}
+                    <select value={step.templateName||""} onChange={e=>{
+                        const t = allTemplates.find(x=>x.name===e.target.value);
+                        updateStep(current.id, idx, { templateName:e.target.value, languageCode: t?.language || step.languageCode || "en_US" });
+                      }}
+                      style={{ ...inp, marginTop:5 }}>
+                      <option value="">— Select a template —</option>
+                      {allTemplates.length === 0 && (
+                        <option disabled>No templates found. Create one in Message Templates page.</option>
+                      )}
+                      {allTemplates.map(t=>(
+                        <option key={`${t.name}_${t.language}`} value={t.name}>
+                          {t.isLocal ? "📝 [Local] " : "✅ [Meta] "}{t.name} ({t.language || "en_US"}) — {t.category}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {step.templateName && (() => { const t=allTemplates.find(x=>x.name===step.templateName); return t?.preview ? (
+                    <div style={{ padding:"8px 12px", background:C.accentLight, borderRadius:8, fontSize:12, color:C.accent2, border:`1px solid ${C.accent}30` }}>
+                      <strong>Preview:</strong> {t.preview}
+                    </div>
+                  ) : null; })()}
+                  <div>
+                    <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label>
+                    <select value={step.languageCode||"en_US"} onChange={e=>updateStep(current.id,idx,{languageCode:e.target.value})}
+                      style={{ ...inp, marginTop:4 }}>
+                      <option value="en_US">English (US)</option>
+                      <option value="en_GB">English (UK)</option>
+                      <option value="hi">Hindi</option>
+                      <option value="mr">Marathi</option>
+                      <option value="gu">Gujarati</option>
+                      <option value="ta">Tamil</option>
+                      <option value="te">Telugu</option>
+                      <option value="kn">Kannada</option>
+                    </select>
+                  </div>
+                </div>
               )}
               {step.type === "collect" && (
                 <div>
@@ -1480,10 +1608,29 @@ function ChatBot() {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
         <div>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>ChatBot Builder</h2>
-          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Build automated flows — supports text messages and approved Meta templates</p>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Build automated flows — supports text messages and local / approved Meta templates</p>
         </div>
-        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
+        <div style={{ display:"flex", gap:10 }}>
+          {/* FIX #2: Save all flows to Supabase so webhook reads updated content */}
+          <button
+            style={{ ...btn("secondary"), fontSize:13 }}
+            onClick={() => syncToServer(flows)}
+            disabled={syncing}
+            title="Push all flows to Supabase so the WhatsApp webhook uses updated step content"
+          >
+            {syncing ? "⏳ Saving..." : "☁️ Save to Server"}
+          </button>
+          <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
+        </div>
       </div>
+      {syncMsg && (
+        <div style={{ padding:"10px 16px", borderRadius:10, marginBottom:14, fontSize:13, fontWeight:600,
+          background: syncMsg.ok ? C.accentLight : "#ff5c7a20",
+          border: `1px solid ${syncMsg.ok ? C.accent : C.red}`,
+          color: syncMsg.ok ? C.accent2 : C.red }}>
+          {syncMsg.text}
+        </div>
+      )}
 
       {showAdd && (
         <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
@@ -2244,9 +2391,13 @@ function LiveChat() {
                     {conv.phone?.slice(-2)}
                   </div>
                   <div>
-                    {/* Show real WhatsApp number */}
-                    <div style={{ fontWeight:700, fontSize:13, color:"#f0f8ff" }}>+{conv.phone}</div>
-                    <div style={{ fontSize:11, color:C.sub }}>{conv.totalMsgs} messages</div>
+                {/* FIX #1: Show contact_name when available, fall back to phone number */}
+                  <div style={{ fontWeight:700, fontSize:13, color:"#f0f8ff" }}>
+                    {conv.contact_name || `+${conv.phone}`}
+                  </div>
+                  <div style={{ fontSize:11, color:C.sub }}>
+                    {conv.contact_name ? `+${conv.phone} · ` : ""}{conv.totalMsgs} messages
+                  </div>
                   </div>
                 </div>
                 <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
@@ -2281,8 +2432,12 @@ function LiveChat() {
                 {activePhone?.slice(-2)}
               </div>
               <div>
-                <div style={{ fontWeight:800, fontSize:15 }}>+{activePhone}</div>
-                <div style={{ fontSize:12, color:C.sub }}>{activeConv?.totalMsgs || 0} messages · WhatsApp</div>
+                <div style={{ fontWeight:800, fontSize:15 }}>
+                  {activeConv?.contact_name || `+${activePhone}`}
+                </div>
+                <div style={{ fontSize:12, color:C.sub }}>
+                  {activeConv?.contact_name ? `+${activePhone} · ` : ""}{activeConv?.totalMsgs || 0} messages · WhatsApp
+                </div>
               </div>
             </div>
             <div style={{ display:"flex", gap:10 }}>
