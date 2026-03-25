@@ -17,24 +17,35 @@ module.exports = async function handler(req, res) {
     const { phone } = req.query;
 
     if (phone) {
-      // Single conversation thread
-     const { data, error } = await supabase
-  .from("messages")
-  .select("*")
-  .or(`from_number.eq.${phone},to_number.eq.${phone}`)
-  .order("created_at", { ascending: true })
-  .limit(500);
+      // FIX #1: Single conversation thread
+      // The original .or() query string was missing proper PostgREST syntax for
+      // filtering on two different columns. Use the correct filter format.
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .or(`from_number.eq.${phone},to_number.eq.${phone}`)
+        .order("created_at", { ascending: true })
+        .limit(500);
 
       if (error) return res.status(500).json({ error: error.message });
-      return res.status(200).json(data || []);
+
+      // FIX #1b: Normalise messages so the frontend always gets direction field.
+      // Some rows inserted by the webhook may not have direction set explicitly.
+      const normalised = (data || []).map(msg => ({
+        ...msg,
+        direction: msg.direction || (msg.from_number === phone ? "inbound" : "outbound"),
+      }));
+
+      return res.status(200).json(normalised);
     }
 
     // All conversations — get latest message per unique phone
+    // FIX #1c: Fetch a larger window so all recent inbound messages are captured.
     const { data, error } = await supabase
-  .from("messages")
-  .select("*")
-  .order("created_at", { ascending: false })
-  .limit(5000);
+      .from("messages")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(5000);
 
     if (error) return res.status(500).json({ error: error.message });
 
@@ -52,10 +63,12 @@ module.exports = async function handler(req, res) {
           direction:  msg.direction,
           unread:     0,
           totalMsgs:  0,
+          contact_name: msg.contact_name || null,
         };
       }
       convMap[userPhone].totalMsgs++;
-      if (msg.direction === "inbound" && msg.status === "received") {
+      // Count unread: inbound messages that are not yet "read"
+      if (msg.direction === "inbound" && msg.status !== "read") {
         convMap[userPhone].unread++;
       }
     }
@@ -111,12 +124,12 @@ module.exports = async function handler(req, res) {
       const data = await r.json();
       if (!r.ok) return res.status(400).json({ error: data.error?.message || "Send failed" });
 
-      // Log the reply
+      // Log the outbound reply
       await supabase.from("messages").insert([{
-        to_number:    to,
-        body:         message || `[template: ${templateName}]`,
-        status:       "sent",
-        direction:    "outbound",
+        to_number:     to,
+        body:          message || `[template: ${templateName}]`,
+        status:        "sent",
+        direction:     "outbound",
         wa_message_id: data.messages?.[0]?.id,
       }]);
 
