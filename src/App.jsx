@@ -574,32 +574,51 @@ function CampaignSummary() {
       + " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
   };
 
-  const downloadExcel = (camp) => {
-    const rows = [
-      ["Campaign Name", camp.name],
-      ["Status", camp.status],
-      ["Start Time", fmtDateTime(camp.created_at)],
-      ["End Time", fmtDateTime(camp.updated_at || camp.created_at)],
-      ["Total", camp.total || 0],
-      ["Sent", camp.sent || 0],
-      ["Delivered", camp.delivered || 0],
-      ["Failed", camp.failed || 0],
-      [],
-      ["Metric", "Value"],
-      ["Sent", camp.sent || 0],
-      ["Delivered", camp.delivered || 0],
-      ["Failed", camp.failed || 0],
-      ["Total", camp.total || 0],
-    ];
-    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '\"')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `campaign_${camp.name.replace(/\s+/g,"_")}_log.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+ const downloadExcel = async (camp) => {
+  // Fetch individual message records for this campaign
+  const { createClient } = window.__supabaseClient || {};
+  // Use the existing supabase client from window or re-init
+  // Fetch messages sent around this campaign's time
+  const rows = [
+    ["Campaign Name", camp.name],
+    ["Status", camp.status],
+    ["Start Time", fmtDateTime(camp.created_at)],
+    ["End Time", fmtDateTime(camp.updated_at || camp.created_at)],
+    ["Total Contacts", camp.total || 0],
+    ["Sent", camp.sent || 0],
+    ["Delivered", camp.delivered || 0],
+    ["Failed", camp.failed || 0],
+    ["Read", camp.read || 0],
+    [],
+    ["#", "Phone Number", "Status", "WA Message ID", "Timestamp"],
+  ];
+  // Fetch per-message detail from Supabase
+  try {
+    const res = await fetch(`/api/live-chat?campaignId=${camp.id}`, { headers: getWAHeaders() });
+    const msgs = await res.json();
+    if (Array.isArray(msgs)) {
+      msgs.forEach((msg, i) => {
+        rows.push([
+          i + 1,
+          msg.to_number || msg.from_number || "-",
+          msg.status || "-",
+          msg.wa_message_id || "-",
+          fmtDateTime(msg.created_at),
+        ]);
+      });
+    }
+  } catch (e) {
+    rows.push(["(Could not fetch per-contact detail)", "", "", "", ""]);
+  }
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '\\"')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `campaign_${camp.name.replace(/\s+/g,"_")}_detail.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
   const downloadAllExcel = () => {
     const headers = ["Campaign", "Status", "Start Time", "End Time", "Sent", "Delivered", "Failed", "Total"];
