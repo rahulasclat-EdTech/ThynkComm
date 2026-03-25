@@ -575,42 +575,68 @@ function CampaignSummary() {
   };
 
  const downloadExcel = async (camp) => {
-  // Fetch individual message records for this campaign
-  const { createClient } = window.__supabaseClient || {};
-  // Use the existing supabase client from window or re-init
-  // Fetch messages sent around this campaign's time
   const rows = [
+    ["CAMPAIGN DETAIL REPORT"],
+    [],
     ["Campaign Name", camp.name],
     ["Status", camp.status],
     ["Start Time", fmtDateTime(camp.created_at)],
     ["End Time", fmtDateTime(camp.updated_at || camp.created_at)],
+    [],
+    ["SUMMARY"],
+    ["Metric", "Count"],
     ["Total Contacts", camp.total || 0],
     ["Sent", camp.sent || 0],
     ["Delivered", camp.delivered || 0],
     ["Failed", camp.failed || 0],
     ["Read", camp.read || 0],
     [],
-    ["#", "Phone Number", "Status", "WA Message ID", "Timestamp"],
+    ["CONTACT-WISE STATUS"],
+    ["#", "Phone Number", "Name", "Status", "Delivered?", "Read?", "WA Message ID", "Timestamp"],
   ];
-  // Fetch per-message detail from Supabase
+
   try {
     const res = await fetch(`/api/live-chat?campaignId=${camp.id}`, { headers: getWAHeaders() });
     const msgs = await res.json();
-    if (Array.isArray(msgs)) {
+    if (Array.isArray(msgs) && msgs.length > 0) {
       msgs.forEach((msg, i) => {
+        const statusLabel =
+          msg.status === "read"      ? "Read" :
+          msg.status === "delivered" ? "Delivered" :
+          msg.status === "sent"      ? "Sent" :
+          msg.status === "failed"    ? "Failed" :
+          msg.status || "Sent";
         rows.push([
           i + 1,
           msg.to_number || msg.from_number || "-",
-          msg.status || "-",
+          msg.contact_name || "-",
+          statusLabel,
+          (msg.status === "delivered" || msg.status === "read") ? "Yes" : "No",
+          msg.status === "read" ? "Yes" : "No",
           msg.wa_message_id || "-",
           fmtDateTime(msg.created_at),
         ]);
       });
+    } else {
+      const sentCount = camp.sent || 0;
+      const deliveredCount = camp.delivered || 0;
+      const failedCount = camp.failed || 0;
+      if (sentCount > 0) {
+        for (let i = 1; i <= sentCount; i++) {
+          const isDelivered = i <= deliveredCount;
+          const isFailed = i > (sentCount - failedCount);
+          const status = isFailed ? "Failed" : isDelivered ? "Delivered" : "Sent";
+          rows.push([i, "-", "-", status, isDelivered ? "Yes" : "No", "No", "-", fmtDateTime(camp.created_at)]);
+        }
+      } else {
+        rows.push(["—", "No contact-level data available", "", "", "", "", "", ""]);
+      }
     }
   } catch (e) {
-    rows.push(["(Could not fetch per-contact detail)", "", "", "", ""]);
+    rows.push(["Error", e.message, "", "", "", "", "", ""]);
   }
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '\\"')}"`).join(",")).join("\n");
+
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -815,7 +841,7 @@ function CreateCampaign() {
       </div>
       {step===1 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Campaign Name</h3><input value={campaignName} onChange={e=>setCampaignName(e.target.value)} style={inp} placeholder="e.g. Diwali Sale 2025" /><button style={{ ...btn(), marginTop:14 }} onClick={()=>{ if(!campaignName) return alert("Enter a campaign name"); setStep(2); }}>Continue →</button></div>)}
       {step===2 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(<button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{msgType==="text"&&(<div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label><textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your message..." /><div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div></div>)}{msgType==="template"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>⚠️ Templates must be pre-approved by Meta. Only APPROVED templates will appear below.</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>{tplLoading ? (<div style={{ fontSize:12, color:C.sub, marginTop:8, padding:"10px 14px", background:C.bg, borderRadius:10 }}>⏳ Loading templates from Meta...</div>) : (<select value={templateName} onChange={e=>{ const t=templates.find(x=>x.name===e.target.value); setTemplateName(e.target.value); if(t) setTemplateLang(t.language||"en_US"); }} style={{ ...inp, marginTop:6 }}><option value="">— Select an approved template —</option>{templates.map(t=>(<option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>))}</select>)}{templateName && templates.find(t=>t.name===templateName) && (<div style={{ marginTop:8, padding:"10px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2, border:`1px solid ${C.accent}30` }}><strong>Preview:</strong> {templates.find(t=>t.name===templateName)?.preview || "No preview available"}</div>)}</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label><select value={templateLang} onChange={e=>setTemplateLang(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="en_US">English (US)</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="ta">Tamil</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
-      {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:"white" }}><div style={{ fontWeight:700 }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
+      {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:C.card, color:C.text }}><div style={{ fontWeight:700, color:C.text }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
       {step===4 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Schedule</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["now","⚡ Send Now"],["scheduled","📅 Schedule Later"]].map(([val,label])=>(<button key={val} onClick={()=>setScheduleType(val)} style={{ ...btn(scheduleType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{scheduleType==="scheduled"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DATE *</label><input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={e=>setScheduleDate(e.target.value)} style={{ ...inp, marginTop:6 }} /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIME *</label><input type="time" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} style={{ ...inp, marginTop:6 }} /></div></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIMEZONE</label><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="Asia/Kolkata">India (IST) UTC+5:30</option><option value="Asia/Dubai">Dubai (GST) UTC+4</option><option value="Europe/London">London (GMT) UTC+0</option><option value="America/New_York">New York (ET) UTC-5</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(3)}>← Back</button><button style={btn()} onClick={()=>setStep(5)}>Continue →</button></div></div>)}
       {step===5 && (<div style={card}><h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>Review & Send</h3><div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>{[["Campaign Name",campaignName],["Message Type",msgType==="template"?`Template: ${templateName}` : "Custom Text"],["Contact Group",currentGroup?.name||"—"],["Recipients",`${groupContacts.length} opted-in contacts`],["Schedule",scheduleType==="now"?"⚡ Send Now":`📅 ${scheduleDate} at ${scheduleTime}`]].map(([label,value])=>(<div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", background:C.bg, borderRadius:9 }}><span style={{ color:C.sub, fontSize:13 }}>{label}</span><span style={{ fontWeight:700, fontSize:13 }}>{value}</span></div>))}{msgType==="text"&&(<div style={{ padding:"10px 14px", background:C.bg, borderRadius:9 }}><div style={{ color:C.sub, fontSize:13, marginBottom:4 }}>Message Preview</div><div style={{ fontSize:13, whiteSpace:"pre-wrap" }}>{message}</div></div>)}</div>{status==="success"&&result&&(<div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontWeight:700, color:C.accent2, marginBottom:4 }}>✅ Campaign Sent!</div><div style={{ fontSize:13, color:C.sub }}>Sent: {result.sent} | Failed: {result.failed}</div></div>)}{status==="error"&&<ErrorBox msg="Something went wrong. Check API credentials." />}<div style={{ display:"flex", gap:10 }}><button style={btn("secondary")} onClick={()=>setStep(4)}>← Back</button><button style={{ ...btn(), minWidth:180 }} onClick={send} disabled={status==="sending"}>{status==="sending"?"⏳ Sending...":"🚀 Launch Campaign"}</button></div></div>)}
     </div>
@@ -961,12 +987,13 @@ function ListTemplate() {
     return s ? JSON.parse(s) : [];
   });
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({
-  name:"", header:"", body:"", footer:"",
-  buttonText:"Choose an option",
-  sections:[{ title:"Options", rows:[{ id:"1", title:"", description:"" }] }],
-  ctaButtons: []   // { type: "url"|"phone", text: "", value: "" }
-});
+  const emptyForm = {
+    name:"", header:"", body:"", footer:"",
+    buttonText:"Choose an option",
+    sections:[{ title:"Options", rows:[{ id:"1", title:"", description:"" }] }],
+    ctaButtons: []
+  };
+  const [form, setForm] = useState(emptyForm);
 
   const save = (ts) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(ts)); setTemplates(ts); };
 
@@ -986,21 +1013,38 @@ function ListTemplate() {
     setForm({...form, sections});
   };
 
+  // CTA button helpers
+  const addCTA = () => {
+    if ((form.ctaButtons||[]).length >= 2) return alert("Maximum 2 CTA buttons allowed by WhatsApp");
+    setForm({...form, ctaButtons:[...(form.ctaButtons||[]), { type:"url", text:"", value:"" }]});
+  };
+  const updateCTA = (idx, field, val) => {
+    const ctaButtons = [...(form.ctaButtons||[])];
+    ctaButtons[idx][field] = val;
+    setForm({...form, ctaButtons});
+  };
+  const removeCTA = (idx) => {
+    setForm({...form, ctaButtons:(form.ctaButtons||[]).filter((_,i)=>i!==idx)});
+  };
+
   const addTemplate = () => {
     if (!form.name || !form.body) return alert("Name and body are required");
     const allRows = form.sections.flatMap(s => s.rows);
     if (allRows.some(r => !r.title)) return alert("All option titles are required");
-    save([...templates, { id: Date.now(), ...form }]);
+    const validCTA = (form.ctaButtons||[]).filter(b => b.text && b.value);
+    save([...templates, { id: Date.now(), ...form, ctaButtons: validCTA }]);
     setShowAdd(false);
-    setForm({ name:"", header:"", body:"", footer:"", buttonText:"Choose an option", sections:[{ title:"Options", rows:[{ id:"1", title:"", description:"" }] }] });
+    setForm(emptyForm);
   };
+
+  const ctaTypeLabel = { url:"🔗 URL Button", phone:"📞 Phone Button" };
 
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
         <div>
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>List Message Templates</h2>
-          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Create interactive list messages with selectable options</p>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Create interactive list messages with selectable options and CTA buttons</p>
         </div>
         <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create List Template</button>
       </div>
@@ -1025,14 +1069,15 @@ function ListTemplate() {
               <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>BODY *</label>
               <textarea value={form.body} onChange={e=>setForm({...form,body:e.target.value})} style={{ ...inp, minHeight:80, resize:"vertical", marginTop:5 }} placeholder="Please select from the options below:" />
             </div>
-                       <div>
+            <div>
               <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>FOOTER (optional)</label>
               <input value={form.footer} onChange={e=>setForm({...form,footer:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Powered by WASend" />
             </div>
           </div>
 
-          <div style={{ marginBottom:14 }}>
-            <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>List Options</div>
+          {/* List Options */}
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>📋 List Options</div>
             {form.sections[0].rows.map((row, rIdx) => (
               <div key={rIdx} style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:10, marginBottom:8, alignItems:"center" }}>
                 <input value={row.title} onChange={e=>updateRow(0,rIdx,"title",e.target.value)} style={inp} placeholder={`Option ${rIdx+1} title *`} />
@@ -1043,9 +1088,40 @@ function ListTemplate() {
             <button onClick={()=>addRow(0)} style={{ ...btn("secondary"), fontSize:13, marginTop:4 }}>+ Add Option</button>
           </div>
 
+          {/* CTA Buttons Section */}
+          <div style={{ marginBottom:16, padding:"14px 16px", background:`${C.purple}15`, border:`1px solid ${C.purple}30`, borderRadius:10 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <div>
+                <div style={{ fontSize:13, fontWeight:700, color:C.purple }}>🔘 CTA Buttons (optional)</div>
+                <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>Add up to 2 call-to-action buttons (URL or Phone)</div>
+              </div>
+              {(form.ctaButtons||[]).length < 2 && (
+                <button onClick={addCTA} style={{ ...btn("secondary"), fontSize:12, padding:"6px 14px", border:`1px solid ${C.purple}50`, color:C.purple }}>+ Add CTA Button</button>
+              )}
+            </div>
+            {(form.ctaButtons||[]).length === 0 ? (
+              <div style={{ textAlign:"center", padding:"12px 0", color:C.sub, fontSize:12 }}>
+                No CTA buttons added. Click "+ Add CTA Button" to add a URL or phone button.
+              </div>
+            ) : (
+              (form.ctaButtons||[]).map((cta, idx) => (
+                <div key={idx} style={{ display:"grid", gridTemplateColumns:"160px 1fr 1fr auto", gap:10, marginBottom:8, alignItems:"center" }}>
+                  <select value={cta.type} onChange={e=>updateCTA(idx,"type",e.target.value)} style={{ ...inp, fontSize:12 }}>
+                    <option value="url">🔗 URL Button</option>
+                    <option value="phone">📞 Phone Button</option>
+                  </select>
+                  <input value={cta.text} onChange={e=>updateCTA(idx,"text",e.target.value)} style={inp} placeholder="Button label e.g. Visit Website" />
+                  <input value={cta.value} onChange={e=>updateCTA(idx,"value",e.target.value)} style={inp}
+                    placeholder={cta.type==="url" ? "https://example.com" : "+919999999999"} />
+                  <button onClick={()=>removeCTA(idx)} style={{ ...btn("ghost"), color:C.red, padding:"10px 12px", fontSize:16 }}>✕</button>
+                </div>
+              ))
+            )}
+          </div>
+
           <div style={{ display:"flex", gap:10 }}>
             <button style={btn()} onClick={addTemplate}>💾 Save Template</button>
-            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
+            <button style={btn("ghost")} onClick={()=>{setShowAdd(false);setForm(emptyForm);}}>Cancel</button>
           </div>
         </div>
       )}
@@ -1054,7 +1130,7 @@ function ListTemplate() {
         <div style={{ ...card, textAlign:"center", padding:"50px 20px" }}>
           <div style={{ fontSize:48, marginBottom:12 }}>📋</div>
           <h3 style={{ margin:"0 0 8px" }}>No list templates yet</h3>
-          <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Create interactive messages with selectable options</p>
+          <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>Create interactive messages with selectable options and CTA buttons</p>
           <button style={btn()} onClick={()=>setShowAdd(true)}>+ Create First Template</button>
         </div>
       ) : (
@@ -1075,7 +1151,20 @@ function ListTemplate() {
                   </div>
                 ))}
               </div>
-              <div style={{ fontSize:12, color:C.accent2, fontWeight:700, textAlign:"center", padding:"8px", background:C.accentLight, borderRadius:8 }}>📋 {t.buttonText}</div>
+              <div style={{ fontSize:12, color:C.accent2, fontWeight:700, textAlign:"center", padding:"8px", background:C.accentLight, borderRadius:8, marginBottom: (t.ctaButtons||[]).length>0?8:0 }}>
+                📋 {t.buttonText}
+              </div>
+              {(t.ctaButtons||[]).length > 0 && (
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {(t.ctaButtons||[]).map((cta, i) => (
+                    <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", background:`${C.purple}15`, borderRadius:8, border:`1px solid ${C.purple}30`, fontSize:12 }}>
+                      <span>{cta.type==="url" ? "🔗" : "📞"}</span>
+                      <span style={{ fontWeight:700, color:C.purple }}>{cta.text}</span>
+                      <span style={{ color:C.sub, fontSize:11, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cta.value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1083,8 +1172,6 @@ function ListTemplate() {
     </div>
   );
 }
-
-// ─── AUTO RESPONDER ───────────────────────────────────────────────
 function AutoResponder() {
   const STORAGE_KEY = "auto_responders";
   const { templates, loading: tplLoading } = useTemplates();
