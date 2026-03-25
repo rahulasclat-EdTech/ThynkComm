@@ -764,19 +764,46 @@ function CampaignSummary() {
 
 // ─── SEND SINGLE ──────────────────────────────────────────────────
 function SendSingle() {
-  const [to, setTo]         = useState("");
-  const [msg, setMsg]       = useState("");
-  const [status, setStatus] = useState(null);
-  const [errMsg, setErrMsg] = useState("");
+  const { templates: allTpl, loading: tplLoading } = useAllTemplates();
+  const [to, setTo]                   = useState("");
+  const [msgType, setMsgType]         = useState("text");  // "text" | "template"
+  const [msg, setMsg]                 = useState("");
+  const [templateName, setTemplateName] = useState("");
+  const [langCode, setLangCode]       = useState("en_US");
+  const [status, setStatus]           = useState(null);
+  const [errMsg, setErrMsg]           = useState("");
+
+  const metaTemplates  = allTpl.filter(t => !t.isLocal);
+  const localTemplates = allTpl.filter(t =>  t.isLocal);
+  const selectedTpl    = allTpl.find(t => t.name === templateName);
+
+  // Preview body: for template show its preview, for text show typed text
+  const previewBody = msgType === "template"
+    ? (selectedTpl?.preview || "(select a template to preview)")
+    : (msg || "Your message will appear here");
 
   const send = async () => {
-    if (!to || !msg) return alert("Phone number and message are required");
+    if (!to) return alert("Phone number is required");
+    if (msgType === "text" && !msg.trim()) return alert("Message is required");
+    if (msgType === "template" && !templateName) return alert("Please select a template");
     setStatus("sending");
     try {
-      const r = await fetch("/api/send-message", { method:"POST", headers:{"Content-Type":"application/json", ...getWAHeaders()}, body: JSON.stringify({ to: to.replace(/\D/g,""), message: msg }) });
+      let endpoint, body;
+      if (msgType === "text") {
+        endpoint = "/api/send-message";
+        body = { to: to.replace(/\D/g,""), message: msg };
+      } else {
+        endpoint = "/api/live-chat";
+        body = { to: to.replace(/\D/g,""), replyType:"template", templateName, languageCode: langCode };
+      }
+      const r = await fetch(endpoint, {
+        method:"POST",
+        headers:{"Content-Type":"application/json", ...getWAHeaders()},
+        body: JSON.stringify(body),
+      });
       const data = await r.json();
-      if (r.ok) { setStatus("success"); setTo(""); setMsg(""); }
-      else { setStatus("error"); setErrMsg(data.error?.error?.message || JSON.stringify(data.error)); }
+      if (r.ok) { setStatus("success"); setTo(""); setMsg(""); setTemplateName(""); }
+      else { setStatus("error"); setErrMsg(data.error?.error?.message || data.error || JSON.stringify(data)); }
     } catch (e) { setStatus("error"); setErrMsg(e.message); }
   };
 
@@ -785,27 +812,90 @@ function SendSingle() {
       <h2 style={{ margin:"0 0 18px", fontSize:18, fontWeight:800 }}>Send Single Message</h2>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 380px", gap:20 }}>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+          {/* Recipient */}
           <div style={card}>
             <h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Recipient</h3>
             <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PHONE NUMBER (with country code)</label>
             <input value={to} onChange={e=>setTo(e.target.value)} style={{ ...inp, marginTop:5 }} placeholder="919999999999" />
           </div>
+
+          {/* Message type toggle */}
           <div style={card}>
-            <h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message</h3>
-            <textarea value={msg} onChange={e=>setMsg(e.target.value)} style={{ ...inp, minHeight:120, resize:"vertical" }} placeholder="Type your message here..." />
-            <div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{msg.length}/4096</div>
+            <h3 style={{ margin:"0 0 12px", fontSize:15, fontWeight:700 }}>Message Type</h3>
+            <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+              {[["text","✏️ Text Message"],["template","📋 Use Template"]].map(([val,label])=>(
+                <button key={val} onClick={()=>setMsgType(val)}
+                  style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13, padding:"8px 18px" }}>{label}</button>
+              ))}
+            </div>
+
+            {msgType === "text" ? (
+              <>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE</label>
+                <textarea value={msg} onChange={e=>setMsg(e.target.value)}
+                  style={{ ...inp, minHeight:120, resize:"vertical", marginTop:5 }}
+                  placeholder="Type your message here..." />
+                <div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{msg.length}/4096</div>
+              </>
+            ) : (
+              <>
+                <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE</label>
+                {tplLoading
+                  ? <div style={{ fontSize:12, color:C.sub, marginTop:6 }}>⏳ Loading templates...</div>
+                  : (
+                    <select value={templateName} onChange={e=>setTemplateName(e.target.value)} style={{ ...inp, marginTop:5 }}>
+                      <option value="">— Select a template —</option>
+                      {metaTemplates.length > 0 && (
+                        <optgroup label="✅ Meta Approved">
+                          {metaTemplates.map(t=>(
+                            <option key={t.name} value={t.name}>{t.name} ({t.language}) — {t.category}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {localTemplates.length > 0 && (
+                        <optgroup label="📝 Locally Created">
+                          {localTemplates.map(t=>(
+                            <option key={t.name} value={t.name}>{t.name}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  )
+                }
+                <div style={{ marginTop:10 }}>
+                  <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label>
+                  <select value={langCode} onChange={e=>setLangCode(e.target.value)} style={{ ...inp, marginTop:5 }}>
+                    <option value="en_US">English (US)</option>
+                    <option value="en_GB">English (UK)</option>
+                    <option value="hi">Hindi</option>
+                    <option value="mr">Marathi</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
+
           {status==="success" && <div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"12px 16px", color:C.accent2, fontWeight:600 }}>✅ Message sent!</div>}
           {status==="error"   && <ErrorBox msg={errMsg} />}
-          <button style={{ ...btn(), alignSelf:"flex-start", minWidth:160 }} onClick={send} disabled={status==="sending"}>{status==="sending" ? "Sending..." : "📤 Send Message"}</button>
+          <button style={{ ...btn(), alignSelf:"flex-start", minWidth:160 }} onClick={send} disabled={status==="sending"}>
+            {status==="sending" ? "Sending..." : "📤 Send Message"}
+          </button>
         </div>
+
+        {/* WhatsApp Preview */}
         <div style={{ ...card, alignSelf:"flex-start" }}>
-          <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:700 }}>Preview</h3>
+          <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:700 }}>WhatsApp Preview</h3>
           <div style={{ background:"#e5ddd5", borderRadius:12, padding:14, minHeight:200 }}>
             <div style={{ background:"white", borderRadius:"0 10px 10px 10px", padding:"10px 14px", fontSize:13, maxWidth:"80%", boxShadow:"0 1px 2px rgba(0,0,0,0.1)", whiteSpace:"pre-wrap" }}>
-              {msg || <span style={{ color:"#aaa" }}>Your message will appear here</span>}
+              {previewBody || <span style={{ color:"#aaa" }}>Your message will appear here</span>}
             </div>
           </div>
+          {msgType==="template" && selectedTpl && (
+            <div style={{ marginTop:10, padding:"8px 10px", background:C.accentLight, borderRadius:8, fontSize:11, color:C.sub }}>
+              Template: <strong style={{ color:C.accent2 }}>{selectedTpl.name}</strong> · {selectedTpl.category} · {selectedTpl.isLocal ? "Local" : "Meta"}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -814,7 +904,7 @@ function SendSingle() {
 
 // ─── CREATE CAMPAIGN ──────────────────────────────────────────────
 function CreateCampaign() {
-  const { templates, loading: tplLoading } = useTemplates();
+  const { templates, loading: tplLoading } = useAllTemplates();
   const [step, setStep]             = useState(1);
   const [contacts, setContacts]     = useState([]);
   const [groups, setGroups]         = useState([]);
@@ -877,7 +967,7 @@ function CreateCampaign() {
         ))}
       </div>
       {step===1 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Campaign Name</h3><input value={campaignName} onChange={e=>setCampaignName(e.target.value)} style={inp} placeholder="e.g. Diwali Sale 2025" /><button style={{ ...btn(), marginTop:14 }} onClick={()=>{ if(!campaignName) return alert("Enter a campaign name"); setStep(2); }}>Continue →</button></div>)}
-      {step===2 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(<button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{msgType==="text"&&(<div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label><textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your message..." /><div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div></div>)}{msgType==="template"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>⚠️ Templates must be pre-approved by Meta. Only APPROVED templates will appear below.</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>{tplLoading ? (<div style={{ fontSize:12, color:C.sub, marginTop:8, padding:"10px 14px", background:C.bg, borderRadius:10 }}>⏳ Loading templates from Meta...</div>) : (<select value={templateName} onChange={e=>{ const t=templates.find(x=>x.name===e.target.value); setTemplateName(e.target.value); if(t) setTemplateLang(t.language||"en_US"); }} style={{ ...inp, marginTop:6 }}><option value="">— Select an approved template —</option>{templates.map(t=>(<option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>))}</select>)}{templateName && templates.find(t=>t.name===templateName) && (<div style={{ marginTop:8, padding:"10px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2, border:`1px solid ${C.accent}30` }}><strong>Preview:</strong> {templates.find(t=>t.name===templateName)?.preview || "No preview available"}</div>)}</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label><select value={templateLang} onChange={e=>setTemplateLang(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="en_US">English (US)</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="ta">Tamil</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
+      {step===2 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(<button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{msgType==="text"&&(<div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label><textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your message..." /><div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div></div>)}{msgType==="template"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>⚠️ Templates must be pre-approved by Meta. Only APPROVED templates will appear below.</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>{tplLoading ? (<div style={{ fontSize:12, color:C.sub, marginTop:8, padding:"10px 14px", background:C.bg, borderRadius:10 }}>⏳ Loading templates from Meta...</div>) : (<select value={templateName} onChange={e=>{ const t=templates.find(x=>x.name===e.target.value); setTemplateName(e.target.value); if(t) setTemplateLang(t.language||"en_US"); }} style={{ ...inp, marginTop:6 }}><option value="">— Select a template —</option>{templates.filter(t=>!t.isLocal).length>0&&(<optgroup label="✅ Meta Approved">{templates.filter(t=>!t.isLocal).map(t=>(<option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>))}</optgroup>)}{templates.filter(t=>t.isLocal).length>0&&(<optgroup label="📝 Locally Created">{templates.filter(t=>t.isLocal).map(t=>(<option key={t.name} value={t.name}>{t.name}</option>))}</optgroup>)}</select>)}{templateName && templates.find(t=>t.name===templateName) && (<div style={{ marginTop:8, padding:"10px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2, border:`1px solid ${C.accent}30` }}><strong>Preview:</strong> {templates.find(t=>t.name===templateName)?.preview || "No preview available"}</div>)}</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label><select value={templateLang} onChange={e=>setTemplateLang(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="en_US">English (US)</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="ta">Tamil</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
       {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:C.card, color:C.text }}><div style={{ fontWeight:700, color:C.text }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
       {step===4 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Schedule</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["now","⚡ Send Now"],["scheduled","📅 Schedule Later"]].map(([val,label])=>(<button key={val} onClick={()=>setScheduleType(val)} style={{ ...btn(scheduleType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{scheduleType==="scheduled"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DATE *</label><input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={e=>setScheduleDate(e.target.value)} style={{ ...inp, marginTop:6 }} /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIME *</label><input type="time" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} style={{ ...inp, marginTop:6 }} /></div></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIMEZONE</label><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="Asia/Kolkata">India (IST) UTC+5:30</option><option value="Asia/Dubai">Dubai (GST) UTC+4</option><option value="Europe/London">London (GMT) UTC+0</option><option value="America/New_York">New York (ET) UTC-5</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(3)}>← Back</button><button style={btn()} onClick={()=>setStep(5)}>Continue →</button></div></div>)}
       {step===5 && (<div style={card}><h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>Review & Send</h3><div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>{[["Campaign Name",campaignName],["Message Type",msgType==="template"?`Template: ${templateName}` : "Custom Text"],["Contact Group",currentGroup?.name||"—"],["Recipients",`${groupContacts.length} opted-in contacts`],["Schedule",scheduleType==="now"?"⚡ Send Now":`📅 ${scheduleDate} at ${scheduleTime}`]].map(([label,value])=>(<div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", background:C.bg, borderRadius:9 }}><span style={{ color:C.sub, fontSize:13 }}>{label}</span><span style={{ fontWeight:700, fontSize:13 }}>{value}</span></div>))}{msgType==="text"&&(<div style={{ padding:"10px 14px", background:C.bg, borderRadius:9 }}><div style={{ color:C.sub, fontSize:13, marginBottom:4 }}>Message Preview</div><div style={{ fontSize:13, whiteSpace:"pre-wrap" }}>{message}</div></div>)}</div>{status==="success"&&result&&(<div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontWeight:700, color:C.accent2, marginBottom:4 }}>✅ Campaign Sent!</div><div style={{ fontSize:13, color:C.sub }}>Sent: {result.sent} | Failed: {result.failed}</div></div>)}{status==="error"&&<ErrorBox msg="Something went wrong. Check API credentials." />}<div style={{ display:"flex", gap:10 }}><button style={btn("secondary")} onClick={()=>setStep(4)}>← Back</button><button style={{ ...btn(), minWidth:180 }} onClick={send} disabled={status==="sending"}>{status==="sending"?"⏳ Sending...":"🚀 Launch Campaign"}</button></div></div>)}
@@ -1024,6 +1114,7 @@ function ListTemplate() {
     return s ? JSON.parse(s) : [];
   });
   const [showAdd, setShowAdd] = useState(false);
+  const [editId, setEditId]   = useState(null);   // Fix 5: track which template is being edited
   const emptyForm = {
     name:"", header:"", body:"", footer:"",
     buttonText:"Choose an option",
@@ -1033,6 +1124,14 @@ function ListTemplate() {
   const [form, setForm] = useState(emptyForm);
 
   const save = (ts) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(ts)); setTemplates(ts); };
+
+  // Fix 5: load a template into the form for editing
+  const startEdit = (t) => {
+    setForm({ ...t });
+    setEditId(t.id);
+    setShowAdd(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const addRow = (sIdx) => {
     const sections = [...form.sections];
@@ -1069,8 +1168,14 @@ function ListTemplate() {
     const allRows = form.sections.flatMap(s => s.rows);
     if (allRows.some(r => !r.title)) return alert("All option titles are required");
     const validCTA = (form.ctaButtons||[]).filter(b => b.text && b.value);
-    save([...templates, { id: Date.now(), ...form, ctaButtons: validCTA }]);
+    if (editId !== null) {
+      // Fix 5: update existing template
+      save(templates.map(t => t.id === editId ? { ...form, ctaButtons: validCTA, id: editId } : t));
+    } else {
+      save([...templates, { id: Date.now(), ...form, ctaButtons: validCTA }]);
+    }
     setShowAdd(false);
+    setEditId(null);
     setForm(emptyForm);
   };
 
@@ -1083,12 +1188,15 @@ function ListTemplate() {
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>List Message Templates</h2>
           <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Create interactive list messages with selectable options and CTA buttons</p>
         </div>
-        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create List Template</button>
+        <button style={btn()} onClick={()=>{ setShowAdd(!showAdd); setEditId(null); setForm(emptyForm); }}>+ Create List Template</button>
       </div>
 
       {showAdd && (
         <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}` }}>
-          <h4 style={{ margin:"0 0 16px", color:C.accent2 }}>New List Message Template</h4>
+          {/* Fix 6: Two-column layout — form on left, live preview on right */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 340px", gap:20 }}>
+            <div>
+          <h4 style={{ margin:"0 0 16px", color:C.accent2 }}>{editId !== null ? "✏️ Edit List Message Template" : "New List Message Template"}</h4>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
             <div style={{ gridColumn:"1/-1" }}>
               <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label>
@@ -1157,9 +1265,50 @@ function ListTemplate() {
           </div>
 
           <div style={{ display:"flex", gap:10 }}>
-            <button style={btn()} onClick={addTemplate}>💾 Save Template</button>
-            <button style={btn("ghost")} onClick={()=>{setShowAdd(false);setForm(emptyForm);}}>Cancel</button>
+            <button style={btn()} onClick={addTemplate}>💾 {editId !== null ? "Update Template" : "Save Template"}</button>
+            <button style={btn("ghost")} onClick={()=>{setShowAdd(false); setEditId(null); setForm(emptyForm);}}>Cancel</button>
           </div>
+            </div>{/* end form column */}
+
+            {/* Fix 6: Live WhatsApp-style preview */}
+            <div style={{ position:"sticky", top:0 }}>
+              <div style={{ fontSize:12, color:C.sub, fontWeight:700, marginBottom:8 }}>📱 LIVE PREVIEW</div>
+              <div style={{ background:"#e5ddd5", borderRadius:14, padding:14, minHeight:320, fontFamily:"sans-serif" }}>
+                {/* Chat bubble */}
+                <div style={{ background:"white", borderRadius:"0 10px 10px 10px", padding:"10px 14px", fontSize:13, maxWidth:"95%", boxShadow:"0 1px 2px rgba(0,0,0,0.12)", marginBottom:8 }}>
+                  {form.header && <div style={{ fontWeight:700, marginBottom:4, fontSize:13 }}>{form.header}</div>}
+                  <div style={{ color:"#111", whiteSpace:"pre-wrap", minHeight:24 }}>
+                    {form.body || <span style={{ color:"#aaa" }}>Message body will appear here...</span>}
+                  </div>
+                  {form.footer && <div style={{ fontSize:11, color:"#888", marginTop:6, borderTop:"1px solid #eee", paddingTop:4 }}>{form.footer}</div>}
+                </div>
+                {/* List button */}
+                <div style={{ background:"white", borderRadius:10, padding:"8px 14px", fontSize:13, maxWidth:"95%", boxShadow:"0 1px 2px rgba(0,0,0,0.12)", textAlign:"center", color:"#007aff", fontWeight:600, marginBottom:8, cursor:"pointer" }}>
+                  ☰ {form.buttonText || "Choose an option"}
+                </div>
+                {/* Options preview (collapsed list hint) */}
+                {form.sections[0]?.rows?.filter(r=>r.title).length > 0 && (
+                  <div style={{ background:"white", borderRadius:10, padding:"6px 0", fontSize:12, maxWidth:"95%", boxShadow:"0 1px 2px rgba(0,0,0,0.12)", marginBottom:8 }}>
+                    <div style={{ padding:"4px 12px", fontWeight:700, color:"#555", fontSize:11, borderBottom:"1px solid #eee" }}>
+                      {form.sections[0].title || "Options"}
+                    </div>
+                    {form.sections[0].rows.filter(r=>r.title).map((row, i) => (
+                      <div key={i} style={{ padding:"6px 12px", borderBottom: i < form.sections[0].rows.filter(r=>r.title).length-1 ? "1px solid #f0f0f0":"none" }}>
+                        <div style={{ fontWeight:600, color:"#111" }}>{row.title}</div>
+                        {row.description && <div style={{ fontSize:11, color:"#888" }}>{row.description}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* CTA buttons preview */}
+                {(form.ctaButtons||[]).filter(b=>b.text).map((cta, i) => (
+                  <div key={i} style={{ background:"white", borderRadius:10, padding:"8px 14px", fontSize:13, maxWidth:"95%", boxShadow:"0 1px 2px rgba(0,0,0,0.12)", textAlign:"center", color:"#007aff", fontWeight:600, marginBottom:6, cursor:"pointer" }}>
+                    {cta.type==="url" ? "🔗" : "📞"} {cta.text}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>{/* end grid */}
         </div>
       )}
 
@@ -1176,7 +1325,10 @@ function ListTemplate() {
             <div key={t.id} style={card}>
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
                 <div style={{ fontWeight:700, fontSize:15 }}>{t.name}</div>
-                <button onClick={()=>save(templates.filter(x=>x.id!==t.id))} style={{ ...btn("ghost"), color:C.red, padding:"4px 8px", fontSize:12 }}>🗑</button>
+                <div style={{ display:"flex", gap:6 }}>
+                  <button onClick={()=>startEdit(t)} style={{ ...btn("secondary"), padding:"4px 10px", fontSize:12 }}>✏️ Edit</button>
+                  <button onClick={()=>save(templates.filter(x=>x.id!==t.id))} style={{ ...btn("ghost"), color:C.red, padding:"4px 8px", fontSize:12 }}>🗑</button>
+                </div>
               </div>
               {t.header && <div style={{ fontSize:12, fontWeight:600, marginBottom:4 }}>{t.header}</div>}
               <div style={{ fontSize:13, color:C.sub, marginBottom:8 }}>{t.body}</div>
@@ -2235,16 +2387,43 @@ function LiveChat() {
   const loadConversations = () => {
     fetch("/api/live-chat", { headers: getWAHeaders() })
       .then(r => r.json())
-      .then(data => { setConversations(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(data => {
+        if (Array.isArray(data)) {
+          // Backend returned grouped conversations
+          setConversations(data);
+        } else if (data && typeof data === "object" && !data.error) {
+          // Unexpected object — wrap as empty
+          setConversations([]);
+        } else if (data.error) {
+          console.warn("Live chat error:", data.error);
+          setConversations([]);
+        } else {
+          setConversations([]);
+        }
+        setLoading(false);
+      })
+      .catch(e => { console.error("loadConversations:", e); setLoading(false); });
   };
 
   const loadMessages = (phone) => {
+    if (!phone) return;
     setMsgLoading(true);
-    fetch(`/api/live-chat?phone=${phone}`, { headers: getWAHeaders() })
+    fetch(`/api/live-chat?phone=${encodeURIComponent(phone)}`, { headers: getWAHeaders() })
       .then(r => r.json())
-      .then(data => { setMessages(Array.isArray(data) ? data : []); setMsgLoading(false); })
-      .catch(() => setMsgLoading(false));
+      .then(data => {
+        if (Array.isArray(data)) {
+          // Normalise direction for each message
+          const normalised = data.map(msg => ({
+            ...msg,
+            direction: msg.direction || (msg.from_number === phone ? "inbound" : "outbound"),
+          }));
+          setMessages(normalised);
+        } else {
+          setMessages([]);
+        }
+        setMsgLoading(false);
+      })
+      .catch(e => { console.error("loadMessages:", e); setMsgLoading(false); });
   };
 
   useEffect(() => { loadConversations(); }, []);
