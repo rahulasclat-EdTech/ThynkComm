@@ -11,7 +11,7 @@ async function sendWhatsApp(to, payload) {
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+        Authorization:  `Bearer ${process.env.WHATSAPP_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ messaging_product: "whatsapp", to, ...payload }),
@@ -36,13 +36,18 @@ async function handleAutoResponder(from, msgText) {
                                      text.includes(kw);
     if (matched) {
       const payload = rule.response_type === "template"
-        ? { type: "template", template: { name: rule.template_name, language: { code: rule.language_code || "en_US" } } }
+        ? {
+            type:     "template",
+            template: { name: rule.template_name, language: { code: rule.language_code || "en_US" } },
+          }
         : { type: "text", text: { body: rule.response_text } };
 
       await sendWhatsApp(from, payload);
       await supabase.from("messages").insert([{
-        to_number: from, body: rule.response_text || `[template: ${rule.template_name}]`,
-        status: "sent", direction: "outbound",
+        to_number:  from,
+        body:       rule.response_text || `[template: ${rule.template_name}]`,
+        status:     "sent",
+        direction:  "outbound",
       }]);
       return true;
     }
@@ -51,26 +56,50 @@ async function handleAutoResponder(from, msgText) {
 }
 
 async function handleChatBot(from, msgText) {
-  const { data: flows } = await supabase.from("chatbot_flows").select("*").eq("active", true);
+  const { data: flows } = await supabase
+    .from("chatbot_flows")
+    .select("*")
+    .eq("active", true);
+
   if (!flows?.length) return false;
 
   const text = msgText.trim().toLowerCase();
-  const { data: session } = await supabase
-    .from("chatbot_sessions").select("*").eq("phone", from).eq("status", "active").maybeSingle();
 
+  const { data: session } = await supabase
+    .from("chatbot_sessions")
+    .select("*")
+    .eq("phone", from)
+    .eq("status", "active")
+    .maybeSingle();
+
+  // Existing active session — send the next step
   if (session) {
     const flow = flows.find(f => f.id === session.flow_id);
-    if (!flow) { await supabase.from("chatbot_sessions").update({ status: "ended" }).eq("id", session.id); return false; }
-    const steps = flow.steps || [];
+    if (!flow) {
+      await supabase.from("chatbot_sessions").update({ status: "ended" }).eq("id", session.id);
+      return false;
+    }
+    const steps    = flow.steps || [];
     const nextStep = steps[session.current_step];
-    if (!nextStep) { await supabase.from("chatbot_sessions").update({ status: "ended" }).eq("id", session.id); return false; }
+    if (!nextStep) {
+      await supabase.from("chatbot_sessions").update({ status: "ended" }).eq("id", session.id);
+      return false;
+    }
     await sendStepMessage(from, nextStep);
     const newStep = session.current_step + 1;
-    if (newStep >= steps.length) await supabase.from("chatbot_sessions").update({ status: "ended", current_step: newStep }).eq("id", session.id);
-    else await supabase.from("chatbot_sessions").update({ current_step: newStep }).eq("id", session.id);
+    if (newStep >= steps.length) {
+      await supabase.from("chatbot_sessions")
+        .update({ status: "ended", current_step: newStep })
+        .eq("id", session.id);
+    } else {
+      await supabase.from("chatbot_sessions")
+        .update({ current_step: newStep })
+        .eq("id", session.id);
+    }
     return true;
   }
 
+  // No active session — check if this message triggers a flow
   for (const flow of flows) {
     const triggers = (flow.triggers || "").split(",").map(t => t.trim().toLowerCase());
     if (triggers.some(t => text === t || text.includes(t))) {
@@ -81,12 +110,14 @@ async function handleChatBot(from, msgText) {
       await sendStepMessage(from, steps[0]);
 
       if (steps.length > 1) {
-        // Store next step index as 1 — session resumes from steps[1] on next message
+        // Persist session so subsequent messages continue the flow from step 1
         await supabase.from("chatbot_sessions").insert([{
-          phone: from, flow_id: flow.id, current_step: 1, status: "active"
+          phone:        from,
+          flow_id:      flow.id,
+          current_step: 1,
+          status:       "active",
         }]);
       }
-      // If only 1 step, no session needed — flow is complete after the trigger response
       return true;
     }
   }
@@ -95,18 +126,27 @@ async function handleChatBot(from, msgText) {
 
 async function sendStepMessage(to, step) {
   const payload = step.type === "template"
-    ? { type: "template", template: { name: step.templateName, language: { code: step.languageCode || "en_US" } } }
+    ? {
+        type:     "template",
+        template: { name: step.templateName, language: { code: step.languageCode || "en_US" } },
+      }
     : { type: "text", text: { body: step.content } };
+
   const r = await sendWhatsApp(to, payload);
   await supabase.from("messages").insert([{
-    to_number: to, body: step.content || `[template: ${step.templateName}]`,
-    status: r.ok ? "sent" : "failed", direction: "outbound",
+    to_number:  to,
+    body:       step.content || `[template: ${step.templateName}]`,
+    status:     r.ok ? "sent" : "failed",
+    direction:  "outbound",
   }]);
 }
 
 module.exports = async function handler(req, res) {
+  // ── GET — Meta webhook verification ────────────────────────────
   if (req.method === "GET") {
-    const mode = req.query["hub.mode"], token = req.query["hub.verify_token"], challenge = req.query["hub.challenge"];
+    const mode      = req.query["hub.mode"];
+    const token     = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
     if (mode === "subscribe" && token === process.env.WEBHOOK_VERIFY_TOKEN) {
       console.log("✅ Webhook verified");
       return res.status(200).send(challenge);
@@ -114,6 +154,7 @@ module.exports = async function handler(req, res) {
     return res.status(403).json({ error: "Verification failed" });
   }
 
+  // ── POST — incoming messages & delivery status ──────────────────
   if (req.method === "POST") {
     const body = req.body;
     if (body.object !== "whatsapp_business_account") return res.status(404).end();
@@ -122,19 +163,19 @@ module.exports = async function handler(req, res) {
       for (const change of entry.changes || []) {
         const value = change.value;
 
-        // Build a contact name map from contacts array in webhook payload
+        // Build contact name map from contacts array in webhook payload
         const contactsMap = {};
         for (const contact of value.contacts || []) {
           contactsMap[contact.wa_id] = contact.profile?.name || contact.wa_id;
         }
 
+        // Inbound messages
         for (const msg of value.messages || []) {
-          const from     = msg.from; // real WhatsApp number e.g. 919999999999
-          const msgText  = msg.text?.body || "";
-          const msgType  = msg.type;
+          const from       = msg.from;
+          const msgText    = msg.text?.body || "";
+          const msgType    = msg.type;
           const senderName = contactsMap[from] || from;
 
-          // Save inbound message with real phone number and contact name
           await supabase.from("messages").insert([{
             from_number:   from,
             contact_name:  senderName,
@@ -144,16 +185,18 @@ module.exports = async function handler(req, res) {
             wa_message_id: msg.id,
           }]);
 
-          // Auto-responder + chatbot for text messages only
+          // Only run auto-responder/chatbot for text messages
           if (msgType === "text" && msgText) {
             const handledByChatbot = await handleChatBot(from, msgText);
             if (!handledByChatbot) await handleAutoResponder(from, msgText);
           }
         }
 
-        // Delivery status updates
+        // Delivery / read status updates
         for (const status of value.statuses || []) {
-          await supabase.from("messages").update({ status: status.status }).eq("wa_message_id", status.id);
+          await supabase.from("messages")
+            .update({ status: status.status })
+            .eq("wa_message_id", status.id);
         }
       }
     }
