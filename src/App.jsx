@@ -1491,7 +1491,7 @@ function AutoResponder() {
 // ADD THESE HOOKS FIRST if missing
 // SAFE useTemplates HOOK (add if missing)
 
-// FIXED useAllTemplates (no dependency)
+// ─── FULL useAllTemplates (Meta + Local) ───
 function useAllTemplates() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1501,7 +1501,25 @@ function useAllTemplates() {
     fetch('/api/templates', { headers: getWAHeaders() })
       .then(r => r.json())
       .then(data => {
-        setTemplates(Array.isArray(data) ? data : []);
+        const metaTemplates = Array.isArray(data) ? data : [];
+        // Read LOCAL templates from localStorage
+        try {
+          const localRaw = JSON.parse(localStorage.getItem('msgtemplates') || '[]');
+          const metaNames = new Set(metaTemplates.map(t => t.name));
+          const localShaped = localRaw
+            .filter(t => !metaNames.has(t.name))
+            .map(t => ({
+              name: t.name,
+              language: 'en_US',
+              category: t.category || 'Marketing',
+              status: t.status || 'Local',
+              preview: t.body,
+              isLocal: true
+            }));
+          setTemplates([...metaTemplates, ...localShaped]);
+        } catch {
+          setTemplates(metaTemplates);
+        }
         setLoading(false);
       }).catch(() => setLoading(false));
   }, []);
