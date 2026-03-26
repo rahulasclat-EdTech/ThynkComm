@@ -1509,36 +1509,6 @@ function useAllTemplates() {
   return { templates, loading };
 }
 
-// SendSingle (REPLACE ENTIRE FUNCTION)
-function SendSingle() {
- const { templates: allTpl = [], loading: tplLoading } = useAllTemplates() || { templates: [], loading: false };
-  const [to, setTo] = useState('');
-  const [msgType, setMsgType] = useState('text');
-  const [msg, setMsg] = useState('');
-  const [templateName, setTemplateName] = useState('');
-  const [langCode, setLangCode] = useState('en_US');
-  const [status, setStatus] = useState(null);
-  const [errMsg, setErrMsg] = useState('');
-  
-  const metaTemplates = allTpl.filter(t => !t?.isLocal);
-  const previewBody = msgType === 'template' ? 
-    allTpl.find(t => t?.name === templateName)?.preview || msg || 'Select template...' : msg;
-  
-  // your send() function here (unchanged)
-  
-  return (
-    <div>
-      {/* your JSX unchanged */}
-      <select value={templateName} onChange={e => setTemplateName(e.target.value)}>
-        <option value="">Select template</option>
-        {metaTemplates.map(t => (
-          <option key={t.name} value={t.name}>{t.name} ({t.language})</option>
-        ))}
-      </select>
-      {/* rest unchanged */}
-    </div>
-  );
-}
 function ChatBot() {
   const STORAGE_KEY = "chatbot_flows";
   // Use merged list — shows both Meta-approved AND locally created templates
