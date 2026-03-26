@@ -764,7 +764,11 @@ function CampaignSummary() {
 
 // ─── SEND SINGLE ──────────────────────────────────────────────────
 function SendSingle() {
- const { templates: allTpl = [], loading: tplLoading } = useAllTemplates();
+ {allTpl.map(t => (
+  <option key={t.name} value={t.name}>
+    {t.name} {t.isLocal ? '(Local)' : '(Meta)'} - {t.language}
+  </option>
+))}
   const [to, setTo]                   = useState("");
   const [msgType, setMsgType]         = useState("text");  // "text" | "template"
   const [msg, setMsg]                 = useState("");
@@ -1498,31 +1502,44 @@ function useAllTemplates() {
   
   useEffect(() => {
     setLoading(true);
-    // Meta templates
+    
+    // 1. Get Meta templates
     fetch('/api/templates', { headers: getWAHeaders() })
       .then(r => r.json())
       .then(metaData => {
         const metaTemplates = Array.isArray(metaData) ? metaData : [];
-        // Local templates
-        try {
-          const localRaw = JSON.parse(localStorage.getItem('msgtemplates') || '[]');
-          const localTemplates = localRaw.map(t => ({
-            ...t,
-            isLocal: true,
-            preview: t.body || t.name
-          }));
-          setTemplates([...metaTemplates, ...localTemplates]);
-        } catch(e) {
-          setTemplates(metaTemplates);
-        }
+        
+        // 2. Get LOCAL templates from localStorage
+        const localRaw = JSON.parse(localStorage.getItem('msgtemplates') || '[]');
+        const localTemplates = localRaw.map(t => ({
+          name: t.name,
+          language: 'en_US',
+          category: t.category || 'Marketing',
+          body: t.body,
+          preview: t.body,
+          isLocal: true
+        }));
+        
+        // 3. Combine both
+        setTemplates([...metaTemplates, ...localTemplates]);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        // If API fails, use only local templates
+        const localRaw = JSON.parse(localStorage.getItem('msgtemplates') || '[]');
+        const localTemplates = localRaw.map(t => ({
+          name: t.name,
+          language: 'en_US',
+          preview: t.body,
+          isLocal: true
+        }));
+        setTemplates(localTemplates);
+        setLoading(false);
+      });
   }, []);
   
   return { templates, loading };
 }
-
 function ChatBot() {
   const STORAGE_KEY = "chatbot_flows";
   // Use merged list — shows both Meta-approved AND locally created templates
