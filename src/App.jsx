@@ -1490,10 +1490,12 @@ function AutoResponder() {
 // Reads localStorage reactively so newly created local templates always appear.
 // ADD THESE HOOKS FIRST if missing
 // SAFE useTemplates HOOK (add if missing)
-function useTemplates() {
+
+// FIXED useAllTemplates (no dependency)
+function useAllTemplates() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  
   useEffect(() => {
     setLoading(true);
     fetch('/api/templates', { headers: getWAHeaders() })
@@ -1503,13 +1505,8 @@ function useTemplates() {
         setLoading(false);
       }).catch(() => setLoading(false));
   }, []);
-  return { templates, loading, error };
-}
-
-// FIXED useAllTemplates
-function useAllTemplates() {
-  const { templates: metaTemplates = [], loading } = useTemplates();
-  return { templates: metaTemplates, loading };
+  
+  return { templates, loading };
 }
 
 // SendSingle (REPLACE ENTIRE FUNCTION)
