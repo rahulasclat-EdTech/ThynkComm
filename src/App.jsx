@@ -1533,16 +1533,13 @@ function SendSingle() {
   const previewBody = msgType === 'template' ? 
     allTpl.find(t => t.name === templateName)?.preview || 'select a template...' : 
     msg || 'Your message will appear here...';
-
   const send = async () => {
     // ... your send logic (unchanged)
   };
-
   return (
     // ... your JSX (unchanged)
   );
 }
-
 function ChatBot() {
   const STORAGE_KEY = "chatbot_flows";
   // Use merged list — shows both Meta-approved AND locally created templates
