@@ -166,23 +166,38 @@ function useTemplates() {
 
 // ─── TEMPLATE PICKER COMPONENT ────────────────────────────────────
 function TemplatePicker({ value, langValue, onChange, onLangChange }) {
-  const { templates, loading, error } = useTemplates();
+  const { templates, loading, error } = useAllTemplates();
   const selected = templates.find(t => t.name === value);
+  const metaTemplates  = templates.filter(t => !t.isLocal);
+  const localTemplates = templates.filter(t =>  t.isLocal);
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
       <div>
-        <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT APPROVED TEMPLATE *</label>
-        {loading && <div style={{ fontSize:12, color:C.sub, marginTop:6 }}>⏳ Loading templates from Meta...</div>}
+        <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>
+        {loading && <div style={{ fontSize:12, color:C.sub, marginTop:6 }}>⏳ Loading templates...</div>}
         {error   && <div style={{ fontSize:12, color:C.red, marginTop:6 }}>⚠️ {error} — check WABA_ID & WHATSAPP_TOKEN in Vercel</div>}
         {!loading && !error && (
           <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inp, marginTop:5 }}>
             <option value="">— Select a template —</option>
-            {templates.map(t => (
-              <option key={`${t.name}_${t.language}`} value={t.name}>
-                {t.name} ({t.language}) — {t.category}
-              </option>
-            ))}
+            {metaTemplates.length > 0 && (
+              <optgroup label="✅ Meta Approved">
+                {metaTemplates.map(t => (
+                  <option key={`${t.name}_${t.language}`} value={t.name}>
+                    {t.name} ({t.language}) — {t.category}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {localTemplates.length > 0 && (
+              <optgroup label="📝 Locally Created">
+                {localTemplates.map(t => (
+                  <option key={t.name} value={t.name}>
+                    {t.name} — {t.category}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         )}
       </div>
@@ -1363,7 +1378,7 @@ function ListTemplate() {
 }
 function AutoResponder() {
   const STORAGE_KEY = "auto_responders";
-  const { templates, loading: tplLoading } = useTemplates();
+  const { templates, loading: tplLoading } = useAllTemplates();
   const [rules, setRules] = useState(() => {
     const s = localStorage.getItem(STORAGE_KEY);
     return s ? JSON.parse(s) : [
@@ -1423,7 +1438,7 @@ function AutoResponder() {
             <div style={{ gridColumn:"1/-1" }}>
               <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>RESPONSE TYPE</label>
               <div style={{ display:"flex", gap:10, marginTop:6 }}>
-                {[["text","✏️ Text Message"],["template","📋 Meta Template"]].map(([val,label])=>(
+                {[["text","✏️ Text Message"],["template","📋 Template"]].map(([val,label])=>(
                   <button key={val} onClick={()=>setForm({...form,responseType:val,response:"",templateName:""})}
                     style={{ ...btn(form.responseType===val?"primary":"secondary"), fontSize:13, padding:"8px 18px" }}>{label}</button>
                 ))}
@@ -2378,7 +2393,7 @@ function UsersList() {
 // ─── PAGE ROUTER ──────────────────────────────────────────────────
 // ─── LIVE CHAT ────────────────────────────────────────────────────
 function LiveChat() {
-  const { templates } = useTemplates();
+  const { templates } = useAllTemplates();
   const [conversations, setConversations] = useState([]);
   const [activePhone, setActivePhone]     = useState(null);
   const [messages, setMessages]           = useState([]);
