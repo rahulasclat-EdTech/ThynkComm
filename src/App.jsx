@@ -1514,22 +1514,32 @@ function AutoResponder() {
 function useAllTemplates() {
   const { templates: metaTemplates, loading, error } = useTemplates();
 
-  // Read local templates reactively — re-read on every render so newly added ones appear
   const [localRaw, setLocalRaw] = useState([]);
   useEffect(() => {
+    const DEFAULT_TEMPLATES = [
+      { id:1, name:"order_confirmation", category:"Transactional", status:"Approved", body:"Hi {{1}}, your order #{{2}} has been confirmed! Expected delivery: {{3}}." },
+      { id:2, name:"flash_sale_alert",   category:"Marketing",     status:"Approved", body:"🔥 Hi {{1}}, get up to 50% off today only. Use code {{2}}." },
+      { id:3, name:"support_followup",   category:"Support",       status:"Approved", body:"Hi {{1}}, this is a follow-up on ticket #{{2}}. Is your issue resolved?" },
+    ];
     const read = () => {
-      try { setLocalRaw(JSON.parse(localStorage.getItem("msg_templates") || "[]")); }
-      catch { setLocalRaw([]); }
+      try {
+        const stored = localStorage.getItem("msg_templates");
+        if (!stored) {
+          // First time — seed defaults so dropdowns are never empty
+          localStorage.setItem("msg_templates", JSON.stringify(DEFAULT_TEMPLATES));
+          setLocalRaw(DEFAULT_TEMPLATES);
+        } else {
+          setLocalRaw(JSON.parse(stored));
+        }
+      } catch { setLocalRaw([]); }
     };
     read();
-    // Also listen for storage events (cross-tab) and poll every 2s to catch same-tab writes
     window.addEventListener("storage", read);
     const id = setInterval(read, 2000);
     return () => { window.removeEventListener("storage", read); clearInterval(id); };
   }, []);
 
   const metaNames = new Set(metaTemplates.map(t => t.name));
-
   const localShaped = localRaw
     .filter(t => t.name && !metaNames.has(t.name))
     .map(t => ({
