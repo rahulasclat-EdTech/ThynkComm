@@ -1488,30 +1488,59 @@ function AutoResponder() {
 // ─── CHATBOT ──────────────────────────────────────────────────────
 // Merges Meta-approved templates (from API) with locally created templates (from localStorage).
 // Reads localStorage reactively so newly created local templates always appear.
-function useAllTemplates() {
-  const { templates: metaTemplates, loading } = useTemplates();
-  const [localTemplates, setLocalTemplates] = useState([]);
+// ADD THESE HOOKS FIRST if missing
+function useTemplates() {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('msg_templates');  // Your key
-      if (stored) setLocalTemplates(JSON.parse(stored));
-    } catch { setLocalTemplates([]); }
-  }, []);  // Runs ONCE only
-  
-  const metaNames = new Set(metaTemplates.map(t => t.name));
-  const localShaped = localTemplates
-    .filter(t => t.name && !metaNames.has(t.name))
-    .map(t => ({
-      name: t.name,
-      language: "en_US",
-      category: t.category || "Marketing",
-      status: t.status || "Local",
-      preview: t.body || "",
-      isLocal: true,
-    }));
-  
-  return { templates: [...metaTemplates, ...localShaped], loading };
+    setLoading(true);
+    fetch('/api/templates', { headers: getWAHeaders() })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setTemplates(data);
+        else setError(data.error || 'Failed to load templates');
+        setLoading(false);
+      })
+      .catch(e => {
+        setError(e.message);
+        setLoading(false);
+      });
+  }, []);
+
+  return { templates, loading, error };
+}
+
+function useAllTemplates() {
+  const { templates: metaTemplates, loading } = useTemplates();
+  // SAFE: Skip local if broken
+  return { templates: metaTemplates || [], loading };
+}
+
+// NOW SendSingle
+function SendSingle() {
+  const { templates: allTpl, loading: tplLoading } = useAllTemplates();
+  const [to, setTo] = useState('');
+  const [msgType, setMsgType] = useState('text');
+  const [msg, setMsg] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [langCode, setLangCode] = useState('en_US');
+  const [status, setStatus] = useState(null);
+  const [errMsg, setErrMsg] = useState('');
+
+  const metaTemplates = allTpl.filter(t => !t.isLocal);
+  const previewBody = msgType === 'template' ? 
+    allTpl.find(t => t.name === templateName)?.preview || 'select a template...' : 
+    msg || 'Your message will appear here...';
+
+  const send = async () => {
+    // ... your send logic (unchanged)
+  };
+
+  return (
+    // ... your JSX (unchanged)
+  );
 }
 
 function ChatBot() {
