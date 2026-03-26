@@ -2647,10 +2647,21 @@ function LiveChat() {
                   <div>
                     <label style={{ fontSize:11, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE</label>
                     <select value={replyTemplate} onChange={e=>setReplyTemplate(e.target.value)} style={{ ...inp, marginTop:4, fontSize:13 }}>
-                      <option value="">— Select approved template —</option>
-                      {templates.map(t=>(
-                        <option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>
-                      ))}
+                      <option value="">— Select a template —</option>
+                      {templates.filter(t=>!t.isLocal).length > 0 && (
+                        <optgroup label="✅ Meta Approved">
+                          {templates.filter(t=>!t.isLocal).map(t=>(
+                            <option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {templates.filter(t=>t.isLocal).length > 0 && (
+                        <optgroup label="📝 Locally Created">
+                          {templates.filter(t=>t.isLocal).map(t=>(
+                            <option key={t.name} value={t.name}>{t.name} — {t.category}</option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                   <div>
