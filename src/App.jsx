@@ -175,9 +175,9 @@ function TemplatePicker({ value, langValue, onChange, onLangChange }) {
     <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
       <div>
         <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>
-        {loading && <div style={{ fontSize:12, color:C.sub, marginTop:6 }}>⏳ Loading templates...</div>}
-        {error   && <div style={{ fontSize:12, color:C.red, marginTop:6 }}>⚠️ {error} — check WABA_ID & WHATSAPP_TOKEN in Vercel</div>}
-        {!loading && !error && (
+        {loading && <div style={{ fontSize:12, color:C.sub, marginTop:6 }}>⏳ Loading Meta templates...</div>}
+        {error   && <div style={{ fontSize:12, color:"#92400e", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:8, padding:"6px 10px", marginTop:6 }}>⚠️ Meta templates unavailable — showing local templates only</div>}
+        {!loading && (
           <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inp, marginTop:5 }}>
             <option value="">— Select a template —</option>
             {metaTemplates.length > 0 && (
@@ -197,6 +197,9 @@ function TemplatePicker({ value, langValue, onChange, onLangChange }) {
                   </option>
                 ))}
               </optgroup>
+            )}
+            {metaTemplates.length === 0 && localTemplates.length === 0 && (
+              <option disabled>No templates found — create one in Message Templates</option>
             )}
           </select>
         )}
@@ -1504,7 +1507,7 @@ function AutoResponder() {
 // Merges Meta-approved templates (from API) with locally created templates (from localStorage).
 // Reads localStorage reactively so newly created local templates always appear.
 function useAllTemplates() {
-  const { templates: metaTemplates, loading } = useTemplates();
+  const { templates: metaTemplates, loading, error } = useTemplates();
 
   // Read local templates reactively — re-read on every render so newly added ones appear
   const [localRaw, setLocalRaw] = useState([]);
@@ -1533,7 +1536,7 @@ function useAllTemplates() {
       isLocal:  true,
     }));
 
-  return { templates: [...metaTemplates, ...localShaped], loading };
+  return { templates: [...metaTemplates, ...localShaped], loading, error };
 }
 
 function ChatBot() {
