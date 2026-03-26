@@ -30,11 +30,14 @@ module.exports = async function handler(req, res) {
 
       if (error) return res.status(500).json({ error: error.message });
 
-      // Normalise direction on every row — some webhook-inserted rows may be missing it
-      const normalised = (data || []).map(msg => ({
-        ...msg,
-        direction: msg.direction || (msg.from_number === decodedPhone ? "inbound" : "outbound"),
-      }));
+      // Normalise direction on every row:
+      // - If direction is already set, trust it.
+      // - Otherwise: if from_number matches the user's phone → inbound; else → outbound.
+      const normalised = (data || []).map(msg => {
+        const dir = msg.direction
+          || (msg.from_number === decodedPhone ? "inbound" : "outbound");
+        return { ...msg, direction: dir };
+      });
 
       return res.status(200).json(normalised);
     }
@@ -51,14 +54,20 @@ module.exports = async function handler(req, res) {
     // Always return an array so the frontend can safely call Array.isArray()
     const convMap = {};
     for (const msg of data || []) {
-      const userPhone = msg.direction === "inbound" ? msg.from_number : msg.to_number;
+      // FIX: Derive direction if the column is null/undefined on webhook-inserted rows.
+      // Inbound rows always have from_number set (the customer's phone).
+      // Outbound rows always have to_number set (the customer's phone).
+      const dir = msg.direction || (msg.from_number ? "inbound" : "outbound");
+
+      const userPhone = dir === "inbound" ? msg.from_number : msg.to_number;
       if (!userPhone) continue;
+
       if (!convMap[userPhone]) {
         convMap[userPhone] = {
           phone:        userPhone,
           lastMsg:      msg.body,
           lastTime:     msg.created_at,
-          direction:    msg.direction,
+          direction:    dir,
           unread:       0,
           totalMsgs:    0,
           contact_name: msg.contact_name || null,
@@ -66,7 +75,7 @@ module.exports = async function handler(req, res) {
       }
       convMap[userPhone].totalMsgs++;
       // Count unread inbound messages
-      if (msg.direction === "inbound" && msg.status !== "read") {
+      if (dir === "inbound" && msg.status !== "read") {
         convMap[userPhone].unread++;
       }
     }
