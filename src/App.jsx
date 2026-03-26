@@ -2930,7 +2930,7 @@ function LiveChat() {
 
           {/* Messages */}
           <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:8, background:"#0d1520" }}>
-            {msgLoading ? <Loader /> : {messages.map((msg, i) => {
+            {msgLoading ? <Loader /> : messages.map((msg, i) => {
   const dir   = msg.direction || (msg.from_number ? "inbound" : "outbound");
   const isOut = dir === "outbound";
   const rawBody  = msg.body || "";
