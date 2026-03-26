@@ -2929,53 +2929,84 @@ function LiveChat() {
           </div>
 
           {/* Messages */}
-          <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:8, background:"#f0f4f2" }}>
-            {msgLoading ? <Loader /> : messages.map((msg, i) => {
-              // Derive direction robustly — never rely solely on DB value
-              const dir   = msg.direction || (msg.from_number ? "inbound" : "outbound");
-              const isOut = dir === "outbound";
+          <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:8, background:"#0d1520" }}>
+            {msgLoading ? <Loader /> : {messages.map((msg, i) => {
+  const dir   = msg.direction || (msg.from_number ? "inbound" : "outbound");
+  const isOut = dir === "outbound";
+  const rawBody  = msg.body || "";
+  const tplMatch = rawBody.match(/^\[template:\s*(.+?)\]$/);
+  const displayBody = tplMatch ? `📋 Template sent: ${tplMatch[1]}` : rawBody;
 
-              // Render body: detect "[template: xxx]" stored by chatbot/campaigns and show nicely
-              const rawBody = msg.body || "";
-              const tplMatch = rawBody.match(/^\[template:\s*(.+?)\]$/);
-              const displayBody = tplMatch
-                ? `📋 Template sent: ${tplMatch[1]}`
-                : rawBody;
+  return (
+    <div key={i} style={{
+      display:"flex",
+      justifyContent: isOut ? "flex-end" : "flex-start",
+      alignItems:"flex-end",
+      gap:6,
+    }}>
+      {/* Inbound avatar */}
+      {!isOut && (
+        <div style={{
+          width:28, height:28, borderRadius:"50%",
+          background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          color:"white", fontSize:11, fontWeight:800, flexShrink:0,
+        }}>
+          {activePhone?.slice(-2)}
+        </div>
+      )}
 
-              return (
-                <div key={i} style={{ display:"flex", justifyContent:isOut ? "flex-end" : "flex-start", alignItems:"flex-end", gap:6 }}>
-                  {/* Inbound avatar */}
-                  {!isOut && (
-                    <div style={{ width:28, height:28, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
-                      display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontSize:11, fontWeight:800, flexShrink:0 }}>
-                      {activePhone?.slice(-2)}
-                    </div>
-                  )}
-                  <div style={{ maxWidth:"65%", padding:"10px 14px",
-                    borderRadius: isOut ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                    background: isOut ? `linear-gradient(135deg,${C.accent},${C.accent2})` : "white",
-                    color: isOut ? "white" : C.text,
-                    fontSize:13, lineHeight:1.5,
-                    boxShadow:"0 1px 4px rgba(0,0,0,0.10)",
-                    border: isOut ? "none" : `1px solid ${C.border}`,
-                    fontStyle: tplMatch ? "italic" : "normal",
-                  }}>
-                    <div style={{ whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{displayBody}</div>
-                    <div style={{ fontSize:10, marginTop:5, opacity:0.65, textAlign:"right", display:"flex", justifyContent:"flex-end", alignItems:"center", gap:3 }}>
-                      <span>{fmt(msg.created_at)}</span>
-                      {isOut && <span>{msg.status==="read" ? "✓✓" : msg.status==="delivered" ? "✓✓" : "✓"}</span>}
-                    </div>
-                  </div>
-                  {/* Outbound avatar */}
-                  {isOut && (
-                    <div style={{ width:28, height:28, borderRadius:"50%", background:"#e2e8f0",
-                      display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>
-                      🧑‍💼
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+      {/* Bubble */}
+      <div style={{
+        maxWidth:"65%",
+        padding:"10px 14px",
+        borderRadius: isOut ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+        background: isOut
+          ? `linear-gradient(135deg, ${C.accent}, ${C.accent2})`
+          : "#1e3a52",
+        color: "#f0f8ff",
+        fontSize:13,
+        lineHeight:1.55,
+        boxShadow: isOut
+          ? `0 2px 12px ${C.accent}40`
+          : "0 2px 8px rgba(0,0,0,0.3)",
+        border: isOut ? "none" : "1px solid #2d5070",
+        fontStyle: tplMatch ? "italic" : "normal",
+      }}>
+        <div style={{ whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
+          {displayBody}
+        </div>
+        <div style={{
+          fontSize:10, marginTop:5, opacity:0.7,
+          textAlign:"right",
+          display:"flex", justifyContent:"flex-end",
+          alignItems:"center", gap:3,
+          color:"rgba(255,255,255,0.75)",
+        }}>
+          <span>{fmt(msg.created_at)}</span>
+          {isOut && (
+            <span style={{ color: msg.status==="read" ? "#a8f0e8" : "rgba(255,255,255,0.6)" }}>
+              {msg.status==="read" ? "✓✓" : msg.status==="delivered" ? "✓✓" : "✓"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Outbound avatar */}
+      {isOut && (
+        <div style={{
+          width:28, height:28, borderRadius:"50%",
+          background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
+          display:"flex", alignItems:"center",
+          justifyContent:"center", fontSize:13, flexShrink:0,
+          color:"white", fontWeight:800,
+        }}>
+          You
+        </div>
+      )}
+    </div>
+  );
+})}
             {messages.length === 0 && !msgLoading && (
               <div style={{ textAlign:"center", color:C.sub, fontSize:13, marginTop:40 }}>No messages yet in this conversation</div>
             )}
