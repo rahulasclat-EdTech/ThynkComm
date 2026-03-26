@@ -1003,11 +1003,7 @@ function MessageTemplate() {
   const STORAGE_KEY = "msg_templates";
   const [templates, setTemplates] = useState(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [
-      { id:1, name:"Order Confirmation", category:"Transactional", status:"Approved", body:"Hi {{1}}, your order #{{2}} has been confirmed! Expected delivery: {{3}}." },
-      { id:2, name:"Flash Sale Alert",   category:"Marketing",     status:"Approved", body:"🔥 Hi {{1}}, get up to 50% off today only. Use code {{2}}." },
-      { id:3, name:"Support Follow-up",  category:"Support",       status:"Pending",  body:"Hi {{1}}, this is a follow-up on ticket #{{2}}. Is your issue resolved?" },
-    ];
+    return stored ? JSON.parse(stored) : [];
   });
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm]       = useState({ name:"", category:"Marketing", body:"" });
@@ -1516,21 +1512,10 @@ function useAllTemplates() {
 
   const [localRaw, setLocalRaw] = useState([]);
   useEffect(() => {
-    const DEFAULT_TEMPLATES = [
-      { id:1, name:"order_confirmation", category:"Transactional", status:"Approved", body:"Hi {{1}}, your order #{{2}} has been confirmed! Expected delivery: {{3}}." },
-      { id:2, name:"flash_sale_alert",   category:"Marketing",     status:"Approved", body:"🔥 Hi {{1}}, get up to 50% off today only. Use code {{2}}." },
-      { id:3, name:"support_followup",   category:"Support",       status:"Approved", body:"Hi {{1}}, this is a follow-up on ticket #{{2}}. Is your issue resolved?" },
-    ];
     const read = () => {
       try {
         const stored = localStorage.getItem("msg_templates");
-        if (!stored) {
-          // First time — seed defaults so dropdowns are never empty
-          localStorage.setItem("msg_templates", JSON.stringify(DEFAULT_TEMPLATES));
-          setLocalRaw(DEFAULT_TEMPLATES);
-        } else {
-          setLocalRaw(JSON.parse(stored));
-        }
+        setLocalRaw(stored ? JSON.parse(stored) : []);
       } catch { setLocalRaw([]); }
     };
     read();
