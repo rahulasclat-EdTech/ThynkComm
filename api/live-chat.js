@@ -30,14 +30,11 @@ module.exports = async function handler(req, res) {
 
       if (error) return res.status(500).json({ error: error.message });
 
-      // Normalise direction on every row:
-      // - If direction is already set, trust it.
-      // - Otherwise: if from_number matches the user's phone → inbound; else → outbound.
-      const normalised = (data || []).map(msg => {
-        const dir = msg.direction
-          || (msg.from_number === decodedPhone ? "inbound" : "outbound");
-        return { ...msg, direction: dir };
-      });
+      // Normalise direction on every row — some webhook-inserted rows may be missing it
+      const normalised = (data || []).map(msg => ({
+        ...msg,
+        direction: msg.direction || (msg.from_number === decodedPhone ? "inbound" : "outbound"),
+      }));
 
       return res.status(200).json(normalised);
     }
@@ -54,14 +51,12 @@ module.exports = async function handler(req, res) {
     // Always return an array so the frontend can safely call Array.isArray()
     const convMap = {};
     for (const msg of data || []) {
-      // FIX: Derive direction if the column is null/undefined on webhook-inserted rows.
-      // Inbound rows always have from_number set (the customer's phone).
-      // Outbound rows always have to_number set (the customer's phone).
+      // Derive direction if the webhook didn't store it explicitly.
+      // Inbound rows have from_number set (customer's phone).
+      // Outbound rows have to_number set (customer's phone).
       const dir = msg.direction || (msg.from_number ? "inbound" : "outbound");
-
       const userPhone = dir === "inbound" ? msg.from_number : msg.to_number;
       if (!userPhone) continue;
-
       if (!convMap[userPhone]) {
         convMap[userPhone] = {
           phone:        userPhone,
