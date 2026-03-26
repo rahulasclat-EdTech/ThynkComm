@@ -764,7 +764,11 @@ function CampaignSummary() {
 
 // ─── SEND SINGLE ──────────────────────────────────────────────────
 function SendSingle() {
-  const { templates: allTpl = [], loading: tplLoading } = useAllTemplates() || { templates: [], loading: false };
+  const { templates: {allTpl.map(t => (
+  <option key={t.name} value={t.name}>
+    {t.name} ({t.language}) {t.isLocal ? '[Local]' : '[Meta]'}
+  </option>
+))}
   const [to, setTo]                   = useState("");
   const [msgType, setMsgType]         = useState("text");  // "text" | "template"
   const [msg, setMsg]                 = useState("");
@@ -1498,30 +1502,26 @@ function useAllTemplates() {
   
   useEffect(() => {
     setLoading(true);
+    // Meta templates
     fetch('/api/templates', { headers: getWAHeaders() })
       .then(r => r.json())
-      .then(data => {
-        const metaTemplates = Array.isArray(data) ? data : [];
-        // Read LOCAL templates from localStorage
+      .then(metaData => {
+        const metaTemplates = Array.isArray(metaData) ? metaData : [];
+        // Local templates
         try {
           const localRaw = JSON.parse(localStorage.getItem('msgtemplates') || '[]');
-          const metaNames = new Set(metaTemplates.map(t => t.name));
-          const localShaped = localRaw
-            .filter(t => !metaNames.has(t.name))
-            .map(t => ({
-              name: t.name,
-              language: 'en_US',
-              category: t.category || 'Marketing',
-              status: t.status || 'Local',
-              preview: t.body,
-              isLocal: true
-            }));
-          setTemplates([...metaTemplates, ...localShaped]);
-        } catch {
+          const localTemplates = localRaw.map(t => ({
+            ...t,
+            isLocal: true,
+            preview: t.body || t.name
+          }));
+          setTemplates([...metaTemplates, ...localTemplates]);
+        } catch(e) {
           setTemplates(metaTemplates);
         }
         setLoading(false);
-      }).catch(() => setLoading(false));
+      })
+      .catch(() => setLoading(false));
   }, []);
   
   return { templates, loading };
