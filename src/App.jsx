@@ -153,13 +153,18 @@ function useTemplates() {
   useEffect(() => {
     setLoading(true);
     fetch("/api/templates", { headers: getWAHeaders() })
-      .then(r => r.json())
+      .then(r => {
+        // If 404 or non-JSON, just return empty — don't crash
+        if (!r.ok) { setLoading(false); return; }
+        return r.json();
+      })
       .then(data => {
+        if (!data) return; // handled above
         if (Array.isArray(data)) setTemplates(data);
         else setError(data.error || "Failed to load templates");
         setLoading(false);
       })
-      .catch(e => { setError(e.message); setLoading(false); });
+      .catch(() => { setLoading(false); }); // silently fail — locals still show
   }, []);
   return { templates, loading, error };
 }
@@ -2544,12 +2549,15 @@ function LiveChat() {
                   {/* Avatar */}
                   <div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
                     display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800, fontSize:14, flexShrink:0 }}>
-                    {conv.phone?.slice(-2)}
+                    {(conv.contact_name || conv.phone)?.slice(0,1)?.toUpperCase() || "?"}
                   </div>
                   <div>
-                    {/* Show real WhatsApp number */}
-                    <div style={{ fontWeight:700, fontSize:13, color:"#f0f8ff" }}>+{conv.phone}</div>
-                    <div style={{ fontSize:11, color:C.sub }}>{conv.totalMsgs} messages</div>
+                    <div style={{ fontWeight:700, fontSize:13, color:C.text }}>
+                      {conv.contact_name || `+${conv.phone}`}
+                    </div>
+                    <div style={{ fontSize:11, color:C.sub }}>
+                      {conv.contact_name ? `+${conv.phone}` : `${conv.totalMsgs} msgs`}
+                    </div>
                   </div>
                 </div>
                 <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
@@ -2560,7 +2568,10 @@ function LiveChat() {
                 </div>
               </div>
               <div style={{ fontSize:12, color:C.sub, marginLeft:46, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                {conv.direction==="outbound" ? "You: " : ""}{conv.lastMsg}
+                {conv.direction==="outbound" ? "You: " : ""}
+                {(conv.lastMsg||"").match(/^\[template:\s*(.+?)\]$/)
+                  ? `📋 ${(conv.lastMsg).match(/^\[template:\s*(.+?)\]$/)[1]}`
+                  : conv.lastMsg}
               </div>
             </div>
           ))}
@@ -2580,12 +2591,16 @@ function LiveChat() {
           <div style={{ padding:"12px 20px", background:C.card, borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               <div style={{ width:40, height:40, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
-                display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800 }}>
-                {activePhone?.slice(-2)}
+                display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:800, fontSize:15 }}>
+                {(activeConv?.contact_name || activePhone)?.slice(0,1)?.toUpperCase() || "?"}
               </div>
               <div>
-                <div style={{ fontWeight:800, fontSize:15 }}>+{activePhone}</div>
-                <div style={{ fontSize:12, color:C.sub }}>{activeConv?.totalMsgs || 0} messages · WhatsApp</div>
+                <div style={{ fontWeight:800, fontSize:15 }}>
+                  {activeConv?.contact_name || `+${activePhone}`}
+                </div>
+                <div style={{ fontSize:12, color:C.sub }}>
+                  {activeConv?.contact_name ? `+${activePhone} · ` : ""}{activeConv?.totalMsgs || 0} messages · WhatsApp
+                </div>
               </div>
             </div>
             <div style={{ display:"flex", gap:10 }}>
@@ -2597,20 +2612,50 @@ function LiveChat() {
           </div>
 
           {/* Messages */}
-          <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:8, background:"#f0f4f2" }}>
             {msgLoading ? <Loader /> : messages.map((msg, i) => {
-              const isOut = msg.direction === "outbound";
+              // Derive direction robustly — never rely solely on DB value
+              const dir   = msg.direction || (msg.from_number ? "inbound" : "outbound");
+              const isOut = dir === "outbound";
+
+              // Render body: detect "[template: xxx]" stored by chatbot/campaigns and show nicely
+              const rawBody = msg.body || "";
+              const tplMatch = rawBody.match(/^\[template:\s*(.+?)\]$/);
+              const displayBody = tplMatch
+                ? `📋 Template sent: ${tplMatch[1]}`
+                : rawBody;
+
               return (
-                <div key={i} style={{ display:"flex", justifyContent:isOut?"flex-end":"flex-start" }}>
-                  <div style={{ maxWidth:"65%", padding:"10px 14px", borderRadius:isOut?"14px 14px 4px 14px":"14px 14px 14px 4px",
-                    background:isOut?`linear-gradient(135deg,${C.accent},${C.accent2})`:C.card,
-                    color:isOut?"white":C.text, fontSize:13, lineHeight:1.5,
-                    boxShadow:"0 1px 3px rgba(0,0,0,0.08)", border:isOut?"none":`1px solid ${C.border}` }}>
-                    <div>{msg.body}</div>
-                    <div style={{ fontSize:10, marginTop:4, opacity:0.7, textAlign:"right" }}>
-                      {fmt(msg.created_at)} {isOut ? (msg.status==="delivered"?"✓✓":msg.status==="read"?"✓✓":"✓") : ""}
+                <div key={i} style={{ display:"flex", justifyContent:isOut ? "flex-end" : "flex-start", alignItems:"flex-end", gap:6 }}>
+                  {/* Inbound avatar */}
+                  {!isOut && (
+                    <div style={{ width:28, height:28, borderRadius:"50%", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
+                      display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontSize:11, fontWeight:800, flexShrink:0 }}>
+                      {activePhone?.slice(-2)}
+                    </div>
+                  )}
+                  <div style={{ maxWidth:"65%", padding:"10px 14px",
+                    borderRadius: isOut ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+                    background: isOut ? `linear-gradient(135deg,${C.accent},${C.accent2})` : "white",
+                    color: isOut ? "white" : C.text,
+                    fontSize:13, lineHeight:1.5,
+                    boxShadow:"0 1px 4px rgba(0,0,0,0.10)",
+                    border: isOut ? "none" : `1px solid ${C.border}`,
+                    fontStyle: tplMatch ? "italic" : "normal",
+                  }}>
+                    <div style={{ whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{displayBody}</div>
+                    <div style={{ fontSize:10, marginTop:5, opacity:0.65, textAlign:"right", display:"flex", justifyContent:"flex-end", alignItems:"center", gap:3 }}>
+                      <span>{fmt(msg.created_at)}</span>
+                      {isOut && <span>{msg.status==="read" ? "✓✓" : msg.status==="delivered" ? "✓✓" : "✓"}</span>}
                     </div>
                   </div>
+                  {/* Outbound avatar */}
+                  {isOut && (
+                    <div style={{ width:28, height:28, borderRadius:"50%", background:"#e2e8f0",
+                      display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>
+                      🧑‍💼
+                    </div>
+                  )}
                 </div>
               );
             })}
