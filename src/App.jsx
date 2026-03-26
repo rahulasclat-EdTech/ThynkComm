@@ -764,11 +764,7 @@ function CampaignSummary() {
 
 // ─── SEND SINGLE ──────────────────────────────────────────────────
 function SendSingle() {
-  const { templates: {allTpl.map(t => (
-  <option key={t.name} value={t.name}>
-    {t.name} ({t.language}) {t.isLocal ? '[Local]' : '[Meta]'}
-  </option>
-))}
+ const { templates: allTpl = [], loading: tplLoading } = useAllTemplates();
   const [to, setTo]                   = useState("");
   const [msgType, setMsgType]         = useState("text");  // "text" | "template"
   const [msg, setMsg]                 = useState("");
