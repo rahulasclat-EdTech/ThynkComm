@@ -169,6 +169,36 @@ function useTemplates() {
   return { templates, loading, error };
 }
 
+// ─── MERGED TEMPLATE HOOK (Meta + Local) ─────────────────────────
+function useAllTemplates() {
+  const { templates: metaTemplates, loading, error } = useTemplates();
+  const [localRaw, setLocalRaw] = useState([]);
+  useEffect(() => {
+    const read = () => {
+      try {
+        const stored = localStorage.getItem("msg_templates");
+        setLocalRaw(stored ? JSON.parse(stored) : []);
+      } catch { setLocalRaw([]); }
+    };
+    read();
+    window.addEventListener("storage", read);
+    const id = setInterval(read, 2000);
+    return () => { window.removeEventListener("storage", read); clearInterval(id); };
+  }, []);
+  const metaNames = new Set(metaTemplates.map(t => t.name));
+  const localShaped = localRaw
+    .filter(t => t.name && !metaNames.has(t.name))
+    .map(t => ({
+      name:     t.name,
+      language: "en_US",
+      category: t.category || "Marketing",
+      status:   t.status   || "Local",
+      preview:  t.body     || "",
+      isLocal:  true,
+    }));
+  return { templates: [...metaTemplates, ...localShaped], loading, error };
+}
+
 // ─── TEMPLATE PICKER COMPONENT ────────────────────────────────────
 function TemplatePicker({ value, langValue, onChange, onLangChange }) {
   const { templates, loading, error } = useAllTemplates();
@@ -1505,40 +1535,6 @@ function AutoResponder() {
 }
 
 // ─── CHATBOT ──────────────────────────────────────────────────────
-// Merges Meta-approved templates (from API) with locally created templates (from localStorage).
-// Reads localStorage reactively so newly created local templates always appear.
-function useAllTemplates() {
-  const { templates: metaTemplates, loading, error } = useTemplates();
-
-  const [localRaw, setLocalRaw] = useState([]);
-  useEffect(() => {
-    const read = () => {
-      try {
-        const stored = localStorage.getItem("msg_templates");
-        setLocalRaw(stored ? JSON.parse(stored) : []);
-      } catch { setLocalRaw([]); }
-    };
-    read();
-    window.addEventListener("storage", read);
-    const id = setInterval(read, 2000);
-    return () => { window.removeEventListener("storage", read); clearInterval(id); };
-  }, []);
-
-  const metaNames = new Set(metaTemplates.map(t => t.name));
-  const localShaped = localRaw
-    .filter(t => t.name && !metaNames.has(t.name))
-    .map(t => ({
-      name:     t.name,
-      language: "en_US",
-      category: t.category || "Marketing",
-      status:   t.status   || "Local",
-      preview:  t.body     || "",
-      isLocal:  true,
-    }));
-
-  return { templates: [...metaTemplates, ...localShaped], loading, error };
-}
-
 function ChatBot() {
   const STORAGE_KEY = "chatbot_flows";
   // Use merged list — shows both Meta-approved AND locally created templates
