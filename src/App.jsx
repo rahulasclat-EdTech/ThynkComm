@@ -764,11 +764,7 @@ function CampaignSummary() {
 
 // ─── SEND SINGLE ──────────────────────────────────────────────────
 function SendSingle() {
- {allTpl.map(t => (
-  <option key={t.name} value={t.name}>
-    {t.name} {t.isLocal ? '(Local)' : '(Meta)'} - {t.language}
-  </option>
-))}
+  const { templates: allTpl, loading: tplLoading } = useAllTemplates();
   const [to, setTo]                   = useState("");
   const [msgType, setMsgType]         = useState("text");  // "text" | "template"
   const [msg, setMsg]                 = useState("");
@@ -1492,54 +1488,39 @@ function AutoResponder() {
 // ─── CHATBOT ──────────────────────────────────────────────────────
 // Merges Meta-approved templates (from API) with locally created templates (from localStorage).
 // Reads localStorage reactively so newly created local templates always appear.
-// ADD THESE HOOKS FIRST if missing
-// SAFE useTemplates HOOK (add if missing)
-
-// ─── FULL useAllTemplates (Meta + Local) ───
 function useAllTemplates() {
-  const [templates, setTemplates] = useState([]);
-  const [loading, setLoading] = useState(false);
-  
+  const { templates: metaTemplates, loading } = useTemplates();
+
+  // Read local templates reactively — re-read on every render so newly added ones appear
+  const [localRaw, setLocalRaw] = useState([]);
   useEffect(() => {
-    setLoading(true);
-    
-    // 1. Get Meta templates
-    fetch('/api/templates', { headers: getWAHeaders() })
-      .then(r => r.json())
-      .then(metaData => {
-        const metaTemplates = Array.isArray(metaData) ? metaData : [];
-        
-        // 2. Get LOCAL templates from localStorage
-        const localRaw = JSON.parse(localStorage.getItem('msgtemplates') || '[]');
-        const localTemplates = localRaw.map(t => ({
-          name: t.name,
-          language: 'en_US',
-          category: t.category || 'Marketing',
-          body: t.body,
-          preview: t.body,
-          isLocal: true
-        }));
-        
-        // 3. Combine both
-        setTemplates([...metaTemplates, ...localTemplates]);
-        setLoading(false);
-      })
-      .catch(() => {
-        // If API fails, use only local templates
-        const localRaw = JSON.parse(localStorage.getItem('msgtemplates') || '[]');
-        const localTemplates = localRaw.map(t => ({
-          name: t.name,
-          language: 'en_US',
-          preview: t.body,
-          isLocal: true
-        }));
-        setTemplates(localTemplates);
-        setLoading(false);
-      });
+    const read = () => {
+      try { setLocalRaw(JSON.parse(localStorage.getItem("msg_templates") || "[]")); }
+      catch { setLocalRaw([]); }
+    };
+    read();
+    // Also listen for storage events (cross-tab) and poll every 2s to catch same-tab writes
+    window.addEventListener("storage", read);
+    const id = setInterval(read, 2000);
+    return () => { window.removeEventListener("storage", read); clearInterval(id); };
   }, []);
-  
-  return { templates, loading };
+
+  const metaNames = new Set(metaTemplates.map(t => t.name));
+
+  const localShaped = localRaw
+    .filter(t => t.name && !metaNames.has(t.name))
+    .map(t => ({
+      name:     t.name,
+      language: "en_US",
+      category: t.category || "Marketing",
+      status:   t.status   || "Local",
+      preview:  t.body     || "",
+      isLocal:  true,
+    }));
+
+  return { templates: [...metaTemplates, ...localShaped], loading };
 }
+
 function ChatBot() {
   const STORAGE_KEY = "chatbot_flows";
   // Use merged list — shows both Meta-approved AND locally created templates
