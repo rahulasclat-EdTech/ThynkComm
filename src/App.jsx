@@ -764,7 +764,7 @@ function CampaignSummary() {
 
 // ─── SEND SINGLE ──────────────────────────────────────────────────
 function SendSingle() {
-  const { templates: allTpl, loading: tplLoading } = useAllTemplates();
+  const { templates: allTpl = [], loading: tplLoading } = useAllTemplates() || { templates: [], loading: false };
   const [to, setTo]                   = useState("");
   const [msgType, setMsgType]         = useState("text");  // "text" | "template"
   const [msg, setMsg]                 = useState("");
@@ -1514,7 +1514,7 @@ function useAllTemplates() {
 
 // SendSingle (REPLACE ENTIRE FUNCTION)
 function SendSingle() {
-  const { templates: allTpl = [], loading: tplLoading } = useAllTemplates();
+ const { templates: allTpl = [], loading: tplLoading } = useAllTemplates() || { templates: [], loading: false };
   const [to, setTo] = useState('');
   const [msgType, setMsgType] = useState('text');
   const [msg, setMsg] = useState('');
