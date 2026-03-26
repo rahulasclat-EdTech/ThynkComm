@@ -1028,133 +1028,459 @@ function CreateCampaign() {
   );
 }
 
-// ─── MESSAGE TEMPLATE ─────────────────────────────────────────────
+// ─── MESSAGE TEMPLATE (updated to match ListTemplate style) ──────
+// Drop-in replacement for the MessageTemplate function in the main app
+
 function MessageTemplate() {
   const STORAGE_KEY = "msg_templates";
   const [templates, setTemplates] = useState(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? JSON.parse(stored) : [];
   });
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm]       = useState({ name:"", category:"Marketing", body:"" });
-  const [selected, setSelected] = useState(null);
+  const [showAdd, setShowAdd]     = useState(false);
+  const [editId, setEditId]       = useState(null);
+  const emptyForm = {
+    name: "", category: "Marketing", body: "",
+    header: "", footer: "", buttons: [],   // CTA buttons
+  };
+  const [form, setForm] = useState(emptyForm);
 
   const save = (ts) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(ts)); setTemplates(ts); };
 
-  const addTemplate = () => {
-    if (!form.name || !form.body) return alert("Name and body are required");
-    const newT = { id: Date.now(), ...form, status:"Pending" };
-    save([...templates, newT]);
-    setForm({ name:"", category:"Marketing", body:"" }); setShowAdd(false);
+  // Load template into form for editing
+  const startEdit = (t) => {
+    setForm({ ...emptyForm, ...t, buttons: t.buttons || [] });
+    setEditId(t.id);
+    setShowAdd(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const deleteTemplate = (id) => {
-    if (!window.confirm("Delete this template?")) return;
-    save(templates.filter(t => t.id !== id));
-    if (selected?.id === id) setSelected(null);
+  // CTA button helpers
+  const addButton = () => {
+    if ((form.buttons || []).length >= 3) return alert("Maximum 3 buttons allowed");
+    setForm({ ...form, buttons: [...(form.buttons || []), { type: "url", text: "", value: "" }] });
   };
+  const updateButton = (idx, field, val) => {
+    const buttons = [...(form.buttons || [])];
+    buttons[idx][field] = val;
+    setForm({ ...form, buttons });
+  };
+  const removeButton = (idx) => {
+    setForm({ ...form, buttons: (form.buttons || []).filter((_, i) => i !== idx) });
+  };
+
+  const addTemplate = () => {
+    if (!form.name || !form.body) return alert("Name and body are required");
+    const validButtons = (form.buttons || []).filter(b => b.text && b.value);
+    if (editId !== null) {
+      save(templates.map(t => t.id === editId
+        ? { ...form, buttons: validButtons, id: editId, status: t.status }
+        : t
+      ));
+    } else {
+      save([...templates, {
+        id: Date.now(), ...form,
+        buttons: validButtons,
+        status: "Pending",
+      }]);
+    }
+    setShowAdd(false);
+    setEditId(null);
+    setForm(emptyForm);
+  };
+
+  // Live preview: replace {{N}} with placeholder text
+  const previewBody = form.body.replace(/\{\{(\d+)\}\}/g, (_, n) => `[Variable ${n}]`);
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <div>
-          <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Message Templates</h2>
-          <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Create and manage your WhatsApp message templates</p>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Message Templates</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: C.sub }}>
+            Create and manage your WhatsApp message templates
+          </p>
         </div>
-        <button style={btn()} onClick={() => setShowAdd(!showAdd)}>+ Create Template</button>
+        <button style={btn()} onClick={() => {
+          setShowAdd(!showAdd);
+          setEditId(null);
+          setForm(emptyForm);
+        }}>
+          + Create Template
+        </button>
       </div>
 
-      <div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e", marginBottom:18 }}>
-        ⚠️ <strong>Note:</strong> Templates shown here are for your reference. For real campaigns, templates must also be submitted and approved in <strong>Meta Business Manager → WhatsApp → Message Templates</strong>.
+      {/* Info banner */}
+      <div style={{
+        padding: "12px 16px", background: "#fffbeb", border: "1px solid #fde68a",
+        borderRadius: 10, fontSize: 12, color: "#92400e", marginBottom: 18,
+      }}>
+        ⚠️ <strong>Note:</strong> Templates saved here are for your reference. For live campaigns, templates
+        must also be submitted and approved in{" "}
+        <strong>Meta Business Manager → WhatsApp → Message Templates</strong>.
       </div>
 
+      {/* ── Create / Edit Form ── */}
       {showAdd && (
-        <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
-          <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>New Message Template</h4>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+        <div style={{ ...card, marginBottom: 18, border: `1.5px solid ${C.accent}` }}>
+          {/* Two-column layout: form left, live preview right */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
+
+            {/* ── Left: form ── */}
             <div>
-              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label>
-              <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="e.g. order_confirmation" />
+              <h4 style={{ margin: "0 0 16px", color: C.accent2 }}>
+                {editId !== null ? "✏️ Edit Message Template" : "New Message Template"}
+              </h4>
+
+              {/* Name + Category */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div style={{ gridColumn: "1/-1" }}>
+                  <label style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>TEMPLATE NAME *</label>
+                  <input
+                    value={form.name}
+                    onChange={e => setForm({ ...form, name: e.target.value })}
+                    style={{ ...inp, marginTop: 5 }}
+                    placeholder="e.g. order_confirmation (lowercase, no spaces)"
+                  />
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+                    Use lowercase letters, numbers and underscores only
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>CATEGORY</label>
+                  <select
+                    value={form.category}
+                    onChange={e => setForm({ ...form, category: e.target.value })}
+                    style={{ ...inp, marginTop: 5 }}
+                  >
+                    <option>Marketing</option>
+                    <option>Transactional</option>
+                    <option>Support</option>
+                    <option>Onboarding</option>
+                    <option>Authentication</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Header */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>HEADER (optional)</label>
+                <input
+                  value={form.header}
+                  onChange={e => setForm({ ...form, header: e.target.value })}
+                  style={{ ...inp, marginTop: 5 }}
+                  placeholder="e.g. Order Confirmed ✅"
+                />
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+                  Bold header line shown above the body
+                </div>
+              </div>
+
+              {/* Body */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>
+                  BODY * (use {`{{1}}`}, {`{{2}}`} for variables)
+                </label>
+                <textarea
+                  value={form.body}
+                  onChange={e => setForm({ ...form, body: e.target.value })}
+                  style={{ ...inp, minHeight: 120, resize: "vertical", marginTop: 5 }}
+                  placeholder={`Hi {{1}}, your order {{2}} has been confirmed!\n\nDelivery expected by {{3}}.`}
+                />
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+                  {form.body.length}/1024 characters ·{" "}
+                  {(form.body.match(/\{\{\d+\}\}/g) || []).length} variable(s) used
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>FOOTER (optional)</label>
+                <input
+                  value={form.footer}
+                  onChange={e => setForm({ ...form, footer: e.target.value })}
+                  style={{ ...inp, marginTop: 5 }}
+                  placeholder="e.g. Reply STOP to unsubscribe"
+                />
+              </div>
+
+              {/* CTA Buttons section */}
+              <div style={{
+                marginBottom: 16,
+                padding: "14px 16px",
+                background: `${C.purple}15`,
+                border: `1px solid ${C.purple}30`,
+                borderRadius: 10,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.purple }}>🔘 Quick Reply / CTA Buttons (optional)</div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                      Add up to 3 call-to-action buttons (URL or Phone)
+                    </div>
+                  </div>
+                  {(form.buttons || []).length < 3 && (
+                    <button
+                      onClick={addButton}
+                      style={{
+                        ...btn("secondary"), fontSize: 12, padding: "6px 14px",
+                        border: `1px solid ${C.purple}50`, color: C.purple,
+                      }}
+                    >
+                      + Add Button
+                    </button>
+                  )}
+                </div>
+
+                {(form.buttons || []).length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "12px 0", color: C.sub, fontSize: 12 }}>
+                    No buttons added yet. Click "+ Add Button" to add a URL or phone button.
+                  </div>
+                ) : (
+                  (form.buttons || []).map((b, idx) => (
+                    <div
+                      key={idx}
+                      style={{ display: "grid", gridTemplateColumns: "150px 1fr 1fr auto", gap: 10, marginBottom: 8, alignItems: "center" }}
+                    >
+                      <select
+                        value={b.type}
+                        onChange={e => updateButton(idx, "type", e.target.value)}
+                        style={{ ...inp, fontSize: 12 }}
+                      >
+                        <option value="url">🔗 URL Button</option>
+                        <option value="phone">📞 Phone Button</option>
+                        <option value="quick_reply">↩️ Quick Reply</option>
+                      </select>
+                      <input
+                        value={b.text}
+                        onChange={e => updateButton(idx, "text", e.target.value)}
+                        style={inp}
+                        placeholder="Button label"
+                      />
+                      <input
+                        value={b.value}
+                        onChange={e => updateButton(idx, "value", e.target.value)}
+                        style={inp}
+                        placeholder={
+                          b.type === "url" ? "https://example.com"
+                          : b.type === "phone" ? "+919999999999"
+                          : "Reply keyword"
+                        }
+                      />
+                      <button
+                        onClick={() => removeButton(idx)}
+                        style={{ ...btn("ghost"), color: C.red, padding: "10px 12px", fontSize: 16 }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 10 }}>
+                <button style={btn()} onClick={addTemplate}>
+                  💾 {editId !== null ? "Update Template" : "Save Template"}
+                </button>
+                <button style={btn("ghost")} onClick={() => {
+                  setShowAdd(false);
+                  setEditId(null);
+                  setForm(emptyForm);
+                }}>
+                  Cancel
+                </button>
+              </div>
             </div>
-            <div>
-              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>CATEGORY</label>
-              <select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={{ ...inp, marginTop:5 }}>
-                <option>Marketing</option><option>Transactional</option><option>Support</option><option>Onboarding</option>
-              </select>
+
+            {/* ── Right: live WhatsApp preview ── */}
+            <div style={{ position: "sticky", top: 0 }}>
+              <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 8 }}>
+                📱 LIVE PREVIEW
+              </div>
+
+              {/* Phone frame */}
+              <div style={{
+                background: "#e5ddd5",
+                borderRadius: 14,
+                padding: 14,
+                minHeight: 320,
+                fontFamily: "sans-serif",
+                backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='20' height='20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v20H0z' fill='%23d4c8bd' fill-opacity='.3'/%3E%3C/svg%3E\")",
+              }}>
+                {/* Message bubble */}
+                <div style={{
+                  background: "white",
+                  borderRadius: "0 10px 10px 10px",
+                  padding: "10px 14px",
+                  maxWidth: "95%",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
+                  marginBottom: 8,
+                }}>
+                  {/* Header */}
+                  {form.header && (
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6, color: "#111" }}>
+                      {form.header}
+                    </div>
+                  )}
+
+                  {/* Body */}
+                  <div style={{
+                    fontSize: 13, color: "#111", whiteSpace: "pre-wrap",
+                    lineHeight: 1.55, minHeight: 24,
+                  }}>
+                    {previewBody || (
+                      <span style={{ color: "#aaa" }}>Message body will appear here...</span>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  {form.footer && (
+                    <div style={{
+                      fontSize: 11, color: "#888", marginTop: 6,
+                      borderTop: "1px solid #eee", paddingTop: 5,
+                    }}>
+                      {form.footer}
+                    </div>
+                  )}
+
+                  {/* Timestamp */}
+                  <div style={{ fontSize: 10, color: "#aaa", textAlign: "right", marginTop: 5 }}>
+                    10:30 AM ✓✓
+                  </div>
+                </div>
+
+                {/* CTA Button previews */}
+                {(form.buttons || []).filter(b => b.text).map((b, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: "white",
+                      borderRadius: 10,
+                      padding: "9px 14px",
+                      maxWidth: "95%",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.10)",
+                      textAlign: "center",
+                      color: "#007aff",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      marginBottom: 6,
+                      cursor: "pointer",
+                      borderTop: "1px solid #f0f0f0",
+                    }}
+                  >
+                    {b.type === "url" ? "🔗" : b.type === "phone" ? "📞" : "↩️"} {b.text}
+                  </div>
+                ))}
+              </div>
+
+              {/* Variable hint */}
+              {(form.body.match(/\{\{\d+\}\}/g) || []).length > 0 && (
+                <div style={{
+                  marginTop: 10, padding: "10px 12px",
+                  background: C.accentLight, borderRadius: 8,
+                  fontSize: 11, color: C.accent2,
+                  border: `1px solid ${C.accent}30`,
+                }}>
+                  💡 Variables like{" "}
+                  {[...new Set(form.body.match(/\{\{\d+\}\}/g) || [])].join(", ")}{" "}
+                  will be replaced with real data when sending.
+                </div>
+              )}
             </div>
-            <div style={{ gridColumn:"1/-1" }}>
-              <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE BODY * (use {`{{1}}`}, {`{{2}}`} for variables)</label>
-              <textarea value={form.body} onChange={e=>setForm({...form,body:e.target.value})} style={{ ...inp, minHeight:100, resize:"vertical", marginTop:5 }} placeholder="Hi {{1}}, your order {{2}} is confirmed!" />
-              <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>{form.body.length}/1024 chars</div>
-            </div>
-          </div>
-          <div style={{ display:"flex", gap:10 }}>
-            <button style={btn()} onClick={addTemplate}>💾 Save Template</button>
-            <button style={btn("ghost")} onClick={()=>setShowAdd(false)}>Cancel</button>
           </div>
         </div>
       )}
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-          {templates.map(t => (
-            <div key={t.id} onClick={()=>setSelected(t)} style={{ ...card, cursor:"pointer", border:`2px solid ${selected?.id===t.id?C.accent:C.border}`, background:selected?.id===t.id?C.accentLight:"white" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:14 }}>{t.name}</div>
-                  <div style={{ fontSize:12, color:C.sub, marginTop:2 }}>{t.category}</div>
-                </div>
-                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                  <Badge status={t.status} />
-                  <button onClick={e=>{e.stopPropagation();deleteTemplate(t.id);}} style={{ ...btn("ghost"), fontSize:12, color:C.red, padding:"4px 8px" }}>🗑</button>
-                </div>
-              </div>
-              <div style={{ fontSize:12, color:C.sub, fontStyle:"italic", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.body}</div>
-            </div>
-          ))}
-          {templates.length === 0 && <div style={{ ...card, textAlign:"center", padding:"40px 20px", color:C.sub }}>No templates yet. Create your first one!</div>}
+      {/* ── Template cards grid ── */}
+      {templates.length === 0 ? (
+        <div style={{ ...card, textAlign: "center", padding: "50px 20px" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📝</div>
+          <h3 style={{ margin: "0 0 8px" }}>No templates yet</h3>
+          <p style={{ color: C.sub, fontSize: 14, margin: "0 0 16px" }}>
+            Create your first message template to get started
+          </p>
+          <button style={btn()} onClick={() => setShowAdd(true)}>+ Create First Template</button>
         </div>
-
-        <div style={{ ...card, alignSelf:"flex-start", position:"sticky", top:0 }}>
-          {selected ? (
-            <>
-              <h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>📋 Template Preview</h3>
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:4 }}>NAME</div>
-                <div style={{ fontWeight:700 }}>{selected.name}</div>
-              </div>
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:4 }}>CATEGORY</div>
-                <span style={pill(C.blue,"#eff6ff")}>{selected.category}</span>
-              </div>
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:4 }}>STATUS</div>
-                <Badge status={selected.status} />
-              </div>
-              <div style={{ marginBottom:16 }}>
-                <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:8 }}>MESSAGE PREVIEW</div>
-                <div style={{ background:"#e5ddd5", borderRadius:12, padding:14 }}>
-                  <div style={{ background:"white", borderRadius:"0 10px 10px 10px", padding:"10px 14px", fontSize:13, maxWidth:"90%", boxShadow:"0 1px 2px rgba(0,0,0,0.1)", whiteSpace:"pre-wrap", lineHeight:1.5 }}>
-                    {selected.body.replace(/{{(\d+)}}/g, (_, n) => `[Variable ${n}]`)}
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          {templates.map(t => (
+            <div key={t.id} style={card}>
+              {/* Card header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t.name}</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <span style={pill(C.blue, "#eff6ff")}>{t.category}</span>
+                    <Badge status={t.status} />
                   </div>
                 </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => startEdit(t)}
+                    style={{ ...btn("secondary"), padding: "5px 10px", fontSize: 12 }}
+                  >
+                    ✏️ Edit
+                  </button>
+                  <button
+                    onClick={() => save(templates.filter(x => x.id !== t.id))}
+                    style={{ ...btn("ghost"), color: C.red, padding: "5px 8px", fontSize: 13 }}
+                  >
+                    🗑
+                  </button>
+                </div>
               </div>
-              <div style={{ padding:"12px 14px", background:"#fffbeb", borderRadius:10, border:"1px solid #fde68a", fontSize:12, color:"#92400e" }}>
-                Variables like {`{{1}}`} will be replaced with real data when sending campaigns.
+
+              {/* Mini WhatsApp preview inside card */}
+              <div style={{
+                background: "#e5ddd5", borderRadius: 10, padding: 10, marginBottom: 12,
+              }}>
+                <div style={{
+                  background: "white", borderRadius: "0 8px 8px 8px", padding: "8px 12px",
+                  fontSize: 12, maxWidth: "90%", boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+                }}>
+                  {t.header && (
+                    <div style={{ fontWeight: 700, marginBottom: 3 }}>{t.header}</div>
+                  )}
+                  <div style={{ color: "#333", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                    {(t.body || "").replace(/\{\{(\d+)\}\}/g, (_, n) => `[Var ${n}]`)}
+                  </div>
+                  {t.footer && (
+                    <div style={{ fontSize: 10, color: "#888", marginTop: 4, borderTop: "1px solid #eee", paddingTop: 3 }}>
+                      {t.footer}
+                    </div>
+                  )}
+                </div>
+                {/* CTA buttons in card */}
+                {(t.buttons || []).filter(b => b.text).map((b, i) => (
+                  <div key={i} style={{
+                    background: "white", borderRadius: 8, padding: "6px 12px",
+                    maxWidth: "90%", textAlign: "center", color: "#007aff",
+                    fontWeight: 600, fontSize: 11, marginTop: 5,
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+                  }}>
+                    {b.type === "url" ? "🔗" : b.type === "phone" ? "📞" : "↩️"} {b.text}
+                  </div>
+                ))}
               </div>
-            </>
-          ) : (
-            <div style={{ textAlign:"center", padding:"40px 20px", color:C.sub }}>
-              <div style={{ fontSize:40, marginBottom:12 }}>📝</div>
-              <div style={{ fontSize:14 }}>Click a template to preview it</div>
+
+              {/* Variables info */}
+              {(t.body.match(/\{\{\d+\}\}/g) || []).length > 0 && (
+                <div style={{
+                  fontSize: 11, color: C.accent2, background: C.accentLight,
+                  borderRadius: 7, padding: "6px 10px",
+                  border: `1px solid ${C.accent}25`,
+                }}>
+                  📌 Variables: {[...new Set(t.body.match(/\{\{\d+\}\}/g) || [])].join(", ")}
+                </div>
+              )}
             </div>
-          )}
+          ))}
         </div>
-      </div>
+      )}
     </div>
   );
 }
-
 // ─── LIST MESSAGE TEMPLATE ────────────────────────────────────────
 function ListTemplate() {
   const STORAGE_KEY = "list_templates";
