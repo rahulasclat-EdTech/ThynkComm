@@ -1490,34 +1490,27 @@ function AutoResponder() {
 // Reads localStorage reactively so newly created local templates always appear.
 function useAllTemplates() {
   const { templates: metaTemplates, loading } = useTemplates();
-
-  // Read local templates reactively — re-read on every render so newly added ones appear
-  const [localRaw, setLocalRaw] = useState([]);
+  const [localTemplates, setLocalTemplates] = useState([]);
+  
   useEffect(() => {
-    const read = () => {
-      try { setLocalRaw(JSON.parse(localStorage.getItem("msg_templates") || "[]")); }
-      catch { setLocalRaw([]); }
-    };
-    read();
-    // Also listen for storage events (cross-tab) and poll every 2s to catch same-tab writes
-    window.addEventListener("storage", read);
-    const id = setInterval(read, 2000);
-    return () => { window.removeEventListener("storage", read); clearInterval(id); };
-  }, []);
-
+    try {
+      const stored = localStorage.getItem('msg_templates');  // Your key
+      if (stored) setLocalTemplates(JSON.parse(stored));
+    } catch { setLocalTemplates([]); }
+  }, []);  // Runs ONCE only
+  
   const metaNames = new Set(metaTemplates.map(t => t.name));
-
-  const localShaped = localRaw
+  const localShaped = localTemplates
     .filter(t => t.name && !metaNames.has(t.name))
     .map(t => ({
-      name:     t.name,
+      name: t.name,
       language: "en_US",
       category: t.category || "Marketing",
-      status:   t.status   || "Local",
-      preview:  t.body     || "",
-      isLocal:  true,
+      status: t.status || "Local",
+      preview: t.body || "",
+      isLocal: true,
     }));
-
+  
   return { templates: [...metaTemplates, ...localShaped], loading };
 }
 
