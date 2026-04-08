@@ -2423,85 +2423,798 @@ function WAAPI() {
 
 // ─── INTEGRATIONS ─────────────────────────────────────────────────
 function Integrations() {
-  const STORAGE_KEY = "integrations";
-  const [connected, setConnected] = useState(() => {
-    const s = localStorage.getItem(STORAGE_KEY);
-    return s ? JSON.parse(s) : {};
+  const STORAGE_KEY = "integrations_v3";
+
+  // ── helpers ──────────────────────────────────────────────────────
+  const genKey    = (prefix) => `${prefix}_${Math.random().toString(36).slice(2,10).toUpperCase()}${Math.random().toString(36).slice(2,10).toUpperCase()}`;
+  const genSecret = ()       => `sk_live_${Math.random().toString(36).slice(2,14)}${Math.random().toString(36).slice(2,14)}`;
+  const nowDate   = ()       => new Date().toISOString().split("T")[0];
+  const nowFull   = ()       => new Date().toLocaleString();
+
+  // ── state ─────────────────────────────────────────────────────────
+  const [data, setData] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { apiKeys: [], webhooks: {} }; }
+    catch { return { apiKeys: [], webhooks: {} }; }
   });
-  const [activeModal, setActiveModal] = useState(null);
-  const [webhookUrl, setWebhookUrl]   = useState("");
+  const [activeTab,  setActiveTab]  = useState("websites");
+  const [modal,      setModal]      = useState(null);
+  const [form,       setForm]       = useState({});
+  const [copiedId,   setCopiedId]   = useState(null);
+  const [whModal,    setWhModal]    = useState(null);
+  const [searchQ,    setSearchQ]    = useState("");
+  const [filterStatus, setFilterStatus] = useState("all"); // all | active | revoked
+  const [expandedKey,  setExpandedKey]  = useState(null);
 
-  const save = (c) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(c)); setConnected(c); };
-  const toggle = (key) => {
-    if (connected[key]) {
-      if (!window.confirm(`Disconnect ${key}?`)) return;
-      const updated = {...connected}; delete updated[key]; save(updated);
-    } else {
-      setActiveModal(key); setWebhookUrl("");
-    }
-  };
-  const connect = () => {
-    if (!webhookUrl) return alert("Webhook URL is required");
-    save({...connected, [activeModal]: { webhookUrl, connectedAt: new Date().toISOString() }});
-    setActiveModal(null);
+  const save = (d) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); setData(d); };
+
+  // ── copy helper ───────────────────────────────────────────────────
+  const copy = (text, id) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 1800);
   };
 
-  const integrations = [
-    { key:"razorpay",  name:"Razorpay",   icon:"💳", desc:"Auto-send payment confirmations and receipts via WhatsApp when payments are received.", color:"#2d6cf6" },
-    { key:"cashfree",  name:"Cashfree",   icon:"🏦", desc:"Trigger WhatsApp messages on payment success, failure or refunds.", color:"#00b386" },
-    { key:"shopify",   name:"Shopify",    icon:"🛍", desc:"Send order confirmations, shipping updates and delivery notifications.", color:"#96bf48" },
-    { key:"woocommerce",name:"WooCommerce",icon:"🛒", desc:"WhatsApp notifications for WooCommerce orders and customer updates.", color:"#7f54b3" },
-    { key:"googlesheets",name:"Google Sheets",icon:"📊",desc:"Trigger WhatsApp messages from Google Sheets data entries.", color:"#34a853" },
-    { key:"zapier",    name:"Zapier",     icon:"⚡", desc:"Connect with 5000+ apps via Zapier webhooks.", color:"#ff4a00" },
+  // ── API KEY CRUD ──────────────────────────────────────────────────
+  const createKey = () => {
+    if (!form.name?.trim()) return alert("Name is required");
+    const newKey = {
+      id:          Date.now(),
+      name:        form.name.trim(),
+      type:        form.type || "website",
+      site:        form.site?.trim()        || "",
+      category:    form.category?.trim()    || "",
+      environment: form.environment         || "production",
+      permissions: form.permissions         || ["send_message"],
+      rateLimit:   form.rateLimit           || "1000",
+      ipWhitelist: form.ipWhitelist?.trim() || "",
+      key:         genKey("tk"),
+      secret:      genSecret(),
+      createdAt:   nowDate(),
+      createdFull: nowFull(),
+      active:      true,
+      requests:    0,
+      lastUsed:    null,
+    };
+    const updated = { ...data, apiKeys: [...(data.apiKeys || []), newKey] };
+    save(updated);
+    setModal("view-key");
+    setForm({ _newKey: newKey });
+  };
+
+  const revokeKey = (id) => {
+    if (!window.confirm("Revoke this API key? It will stop working immediately.")) return;
+    save({ ...data, apiKeys: data.apiKeys.map(k => k.id === id ? { ...k, active: false } : k) });
+  };
+
+  const reactivateKey = (id) => {
+    save({ ...data, apiKeys: data.apiKeys.map(k => k.id === id ? { ...k, active: true } : k) });
+  };
+
+  const deleteKey = (id) => {
+    if (!window.confirm("Delete this key permanently? This cannot be undone.")) return;
+    save({ ...data, apiKeys: data.apiKeys.filter(k => k.id !== id) });
+  };
+
+  const rotateKey = (id) => {
+    if (!window.confirm("Rotate this key? The old key will stop working immediately.")) return;
+    const newKey = genKey("tk");
+    const newSecret = genSecret();
+    const rotated = data.apiKeys.map(k => k.id === id ? { ...k, key: newKey, secret: newSecret, createdAt: nowDate() } : k);
+    save({ ...data, apiKeys: rotated });
+    const k = rotated.find(k => k.id === id);
+    setModal("view-key");
+    setForm({ _newKey: k });
+  };
+
+  // ── WEBHOOK CRUD ─────────────────────────────────────────────────
+  const connectWebhook = (whKey) => {
+    if (!form.webhookUrl?.trim()) return alert("Webhook URL is required");
+    save({ ...data, webhooks: { ...data.webhooks, [whKey]: {
+      url: form.webhookUrl.trim(),
+      secret: form.whSecret?.trim() || "",
+      events: form.whEvents || [],
+      connectedAt: nowDate(),
+      active: true
+    }}});
+    setWhModal(null); setForm({});
+  };
+
+  const disconnectWebhook = (whKey) => {
+    if (!window.confirm(`Disconnect ${whKey}?`)) return;
+    const wh = { ...data.webhooks }; delete wh[whKey]; save({ ...data, webhooks: wh });
+  };
+
+  // ── Derived data ──────────────────────────────────────────────────
+  const typeMap = { websites: "website", pg: "payment_gateway", others: "other" };
+  const tabType = typeMap[activeTab];
+  const filteredKeys = (data.apiKeys || []).filter(k => {
+    if (k.type !== tabType) return false;
+    if (filterStatus === "active"  && !k.active) return false;
+    if (filterStatus === "revoked" &&  k.active) return false;
+    if (searchQ && !k.name.toLowerCase().includes(searchQ.toLowerCase()) &&
+        !k.site?.toLowerCase().includes(searchQ.toLowerCase())) return false;
+    return true;
+  });
+
+  // ── WEBHOOK PLATFORMS ──────────────────────────────────────────────
+  const webhookPlatforms = [
+    { key:"razorpay",    name:"Razorpay",          icon:"💳", color:"#2d6cf6", tag:"Payment", events:["payment.captured","payment.failed","refund.created","subscription.charged"], desc:"Payment confirmations, refunds, and subscription events." },
+    { key:"cashfree",    name:"Cashfree",           icon:"🏦", color:"#00b386", tag:"Payment", events:["PAYMENT_SUCCESS","PAYMENT_FAILED","REFUND_STATUS_WEBHOOK"], desc:"Order payments, payouts and settlement notifications." },
+    { key:"payu",        name:"PayU",               icon:"💰", color:"#f77f00", tag:"Payment", events:["success","failure","chargeback"], desc:"Transaction success, failure and chargeback events." },
+    { key:"stripe",      name:"Stripe",             icon:"🔷", color:"#635bff", tag:"Payment", events:["payment_intent.succeeded","charge.failed","invoice.paid","customer.subscription.updated"], desc:"Charges, subscriptions, invoices and disputes." },
+    { key:"paytm",       name:"Paytm",              icon:"💙", color:"#00b9f5", tag:"Payment", events:["PAYMENT_SUCCESS","REFUND_SUCCESS"], desc:"UPI and wallet payment confirmations." },
+    { key:"phonepe",     name:"PhonePe",            icon:"🟣", color:"#5f259f", tag:"Payment", events:["PAYMENT_SUCCESS","PAYMENT_ERROR"], desc:"PhonePe UPI payment and PG events." },
+    { key:"shopify",     name:"Shopify",            icon:"🛍️", color:"#96bf48", tag:"eCommerce", events:["orders/create","orders/fulfilled","orders/cancelled","customers/create"], desc:"Order confirmations, shipping updates, delivery." },
+    { key:"woocommerce", name:"WooCommerce",        icon:"🛒", color:"#7f54b3", tag:"eCommerce", events:["woocommerce_order_status_changed","woocommerce_checkout_order_created"], desc:"Order status changes and customer notifications." },
+    { key:"magento",     name:"Magento",            icon:"🔶", color:"#f26322", tag:"eCommerce", events:["order.placed","order.shipped","order.cancelled"], desc:"Magento 2 order lifecycle events." },
+    { key:"zapier",      name:"Zapier",             icon:"⚡", color:"#ff4a00", tag:"Automation", events:["trigger"], desc:"Automate with 5000+ apps via Zapier." },
+    { key:"make",        name:"Make (Integromat)",  icon:"🔗", color:"#6c47ff", tag:"Automation", events:["trigger"], desc:"Visual automation workflows with 1000+ apps." },
+    { key:"pabbly",      name:"Pabbly Connect",     icon:"🔀", color:"#2e84ef", tag:"Automation", events:["trigger"], desc:"Connect apps without code — Indian Zapier alternative." },
+    { key:"hubspot",     name:"HubSpot",            icon:"🟠", color:"#ff7a59", tag:"CRM", events:["contact.creation","deal.creation","deal.propertyChange"], desc:"CRM contact and deal lifecycle triggers." },
+    { key:"salesforce",  name:"Salesforce",         icon:"☁️", color:"#00a1e0", tag:"CRM", events:["Opportunity","Lead","Contact"], desc:"Sales pipeline, leads and opportunity events." },
+    { key:"leadsquared", name:"LeadSquared",        icon:"📊", color:"#e33a3a", tag:"CRM", events:["lead.added","lead.stage_changed","activity.added"], desc:"Indian CRM — lead capture and stage changes." },
+    { key:"freshdesk",   name:"Freshdesk",          icon:"🎧", color:"#25c16f", tag:"Support", events:["ticket_created","ticket_resolved","ticket_reopened"], desc:"Support ticket creation and resolution events." },
   ];
 
-  return (
-    <div>
-      <h2 style={{ margin:"0 0 6px", fontSize:18, fontWeight:800 }}>Integrations</h2>
-      <p style={{ color:C.sub, fontSize:13, margin:"0 0 20px" }}>Connect your favourite tools to send WhatsApp messages automatically</p>
+  // ── PG PRESETS ────────────────────────────────────────────────────
+  const pgPresets = [
+    { label:"Razorpay",  site:"Razorpay PG" },
+    { label:"Stripe",    site:"Stripe PG" },
+    { label:"Cashfree",  site:"Cashfree PG" },
+    { label:"PayU",      site:"PayU PG" },
+    { label:"Paytm",     site:"Paytm PG" },
+    { label:"PhonePe",   site:"PhonePe PG" },
+    { label:"Custom PG", site:"Custom Payment Gateway" },
+  ];
 
-      {activeModal && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
-          <div style={{ ...card, width:460, maxWidth:"90vw" }}>
-            <h3 style={{ margin:"0 0 14px", fontSize:16, fontWeight:800 }}>Connect {activeModal}</h3>
-            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>WEBHOOK URL FROM {activeModal.toUpperCase()}</label>
-            <input value={webhookUrl} onChange={e=>setWebhookUrl(e.target.value)} style={{ ...inp, marginTop:6, marginBottom:14 }} placeholder="https://api.example.com/webhook/..." />
-            <div style={{ padding:"12px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2, marginBottom:16 }}>
-              📋 Copy your WASend webhook URL: <strong>{window.location.origin}/api/webhook</strong><br/>Paste it in {activeModal}'s webhook settings, then paste {activeModal}'s webhook URL above.
-            </div>
-            <div style={{ display:"flex", gap:10 }}>
-              <button style={btn()} onClick={connect}>Connect</button>
-              <button style={btn("ghost")} onClick={()=>setActiveModal(null)}>Cancel</button>
-            </div>
-          </div>
+  const otherPresets = [
+    { label:"iOS App",     site:"iOS App" },
+    { label:"Android App", site:"Android App" },
+    { label:"Zapier",      site:"Zapier Integration" },
+    { label:"HubSpot CRM", site:"HubSpot CRM" },
+    { label:"Shopify",     site:"Shopify Store" },
+    { label:"Custom API",  site:"Custom API Client" },
+  ];
+
+  const allPermissions = [
+    { id:"send_message",   label:"Send Messages" },
+    { id:"read_contacts",  label:"Read Contacts" },
+    { id:"write_contacts", label:"Write Contacts" },
+    { id:"read_campaigns", label:"Read Campaigns" },
+    { id:"send_template",  label:"Send Templates" },
+    { id:"read_analytics", label:"Read Analytics" },
+  ];
+
+  // ── STYLES ────────────────────────────────────────────────────────
+  const tabStyle = (t) => ({
+    padding:"9px 18px", borderRadius:10, border:"none", cursor:"pointer", fontSize:13, fontWeight:700,
+    background: activeTab===t ? C.accent : "transparent",
+    color:      activeTab===t ? "white"  : C.sub,
+    transition: "all 0.18s",
+  });
+
+  const badgeStyle = (active) => ({
+    display:"inline-flex", alignItems:"center", gap:4,
+    padding:"2px 9px", borderRadius:99, fontSize:11, fontWeight:700,
+    background: active ? "rgba(6,214,160,0.15)" : "rgba(255,92,122,0.15)",
+    color:      active ? C.green : C.red,
+  });
+
+  const envBadge = (env) => ({
+    display:"inline-block",
+    padding:"2px 8px", borderRadius:99, fontSize:10, fontWeight:700,
+    background: env==="production" ? "rgba(26,184,168,0.15)" : "rgba(255,159,67,0.15)",
+    color:      env==="production" ? C.accent : C.orange,
+  });
+
+  const monoBox = {
+    background:"#080f18", border:`1px solid ${C.border}`, borderRadius:8,
+    padding:"10px 14px", fontFamily:"monospace", fontSize:12,
+    color:C.accent, wordBreak:"break-all", lineHeight:1.6
+  };
+
+  const Label = ({ children }) => (
+    <label style={{ fontSize:11, fontWeight:700, color:C.sub, letterSpacing:"0.07em", display:"block", marginBottom:5, textTransform:"uppercase" }}>
+      {children}
+    </label>
+  );
+
+  // ── MODAL WRAPPER ─────────────────────────────────────────────────
+  const Modal = ({ title, onClose, children, wide }) => (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
+      <div style={{ ...card, width: wide ? 640 : 540, maxWidth:"100%", maxHeight:"90vh", overflowY:"auto" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:22 }}>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>{title}</h3>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:C.sub, fontSize:22, cursor:"pointer", lineHeight:1 }}>×</button>
         </div>
-      )}
-
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
-        {integrations.map(ig => (
-          <div key={ig.key} style={{ ...card }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-              <div style={{ width:44, height:44, borderRadius:12, background:ig.color+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>{ig.icon}</div>
-              <div onClick={()=>toggle(ig.key)} style={{ width:44, height:24, borderRadius:99, background:connected[ig.key]?C.accent:C.border, cursor:"pointer", position:"relative", transition:"background 0.2s", flexShrink:0 }}>
-                <div style={{ width:18, height:18, borderRadius:"50%", background:"white", position:"absolute", top:3, left:connected[ig.key]?23:3, transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
-              </div>
-            </div>
-            <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{ig.name}</div>
-            <div style={{ fontSize:13, color:C.sub, marginBottom:12, lineHeight:1.5 }}>{ig.desc}</div>
-            {connected[ig.key] && (
-              <div style={{ background:C.accentLight, borderRadius:8, padding:"8px 12px", marginBottom:10, fontSize:12, color:C.accent2 }}>
-                ✅ Connected since {connected[ig.key].connectedAt?.split("T")[0]}
-              </div>
-            )}
-            <button onClick={()=>toggle(ig.key)} style={{ ...btn(connected[ig.key]?"secondary":"primary"), width:"100%", fontSize:13 }}>
-              {connected[ig.key] ? "⚙️ Disconnect" : "🔗 Connect"}
-            </button>
-          </div>
-        ))}
+        {children}
       </div>
     </div>
   );
+
+  // ── CODE SNIPPET HELPER ───────────────────────────────────────────
+  const CodeSnippet = ({ k }) => {
+    const baseUrl = window.location.origin;
+    const snippets = {
+      curl: `curl -X POST ${baseUrl}/api/send-message \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: ${k.key}" \\
+  -H "x-api-secret: ${k.secret}" \\
+  -d '{"to":"919876543210","message":"Hello from ${k.name}!"}'`,
+      js: `const res = await fetch("${baseUrl}/api/send-message", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-api-key":    "${k.key.slice(0,16)}...",
+    "x-api-secret": "${k.secret.slice(0,20)}...",
+  },
+  body: JSON.stringify({
+    to:      "919876543210",
+    message: "Hello from ${k.name}!"
+  })
+});
+const data = await res.json();`,
+      php: `<?php
+$ch = curl_init("${baseUrl}/api/send-message");
+curl_setopt_array($ch, [
+  CURLOPT_POST        => true,
+  CURLOPT_HTTPHEADER  => [
+    "Content-Type: application/json",
+    "x-api-key: ${k.key.slice(0,16)}...",
+    "x-api-secret: ${k.secret.slice(0,20)}...",
+  ],
+  CURLOPT_POSTFIELDS  => json_encode([
+    "to"      => "919876543210",
+    "message" => "Hello from ${k.name}!"
+  ]),
+  CURLOPT_RETURNTRANSFER => true,
+]);
+$response = curl_exec($ch);`,
+    };
+    const [lang, setLang] = useState("js");
+    return (
+      <div>
+        <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+          {["js","curl","php"].map(l => (
+            <button key={l} onClick={() => setLang(l)} style={{
+              padding:"4px 12px", borderRadius:8, border:"none", cursor:"pointer", fontSize:11, fontWeight:700,
+              background: lang===l ? C.accent : "rgba(255,255,255,0.07)",
+              color:      lang===l ? "white" : C.sub,
+            }}>{l.toUpperCase()}</button>
+          ))}
+        </div>
+        <div style={{ ...monoBox, fontSize:11, lineHeight:1.7, position:"relative", color:C.sub, whiteSpace:"pre-wrap", overflow:"auto", maxHeight:160 }}>
+          {snippets[lang]}
+          <button onClick={() => copy(snippets[lang], `snip-${k.id}`)} style={{
+            position:"absolute", top:8, right:8,
+            ...btn("secondary"), fontSize:10, padding:"3px 8px"
+          }}>{copiedId===`snip-${k.id}` ? "✓" : "Copy"}</button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── CREATE KEY FORM ───────────────────────────────────────────────
+  const CreateKeyForm = ({ type }) => {
+    const isWS = type === "website";
+    const isPG = type === "payment_gateway";
+    const isOT = type === "other";
+    const togglePerm = (p) => {
+      const perms = form.permissions || ["send_message"];
+      setForm({ ...form, permissions: perms.includes(p) ? perms.filter(x=>x!==p) : [...perms, p] });
+    };
+    return (
+      <>
+        <Label>KEY NAME *</Label>
+        <input value={form.name||""} onChange={e=>setForm({...form,name:e.target.value})}
+          style={{ ...inp, marginBottom:14 }}
+          placeholder={isWS ? "e.g. My Store, Blog, Landing Page" : isPG ? "e.g. Checkout Bot, Order Alerts" : "e.g. iOS App, CRM Bot"} />
+
+        {isWS && (
+          <>
+            <Label>SITE URL</Label>
+            <input value={form.site||""} onChange={e=>setForm({...form,site:e.target.value})}
+              style={{ ...inp, marginBottom:14 }} placeholder="https://mywebsite.com" />
+          </>
+        )}
+
+        {isPG && (
+          <>
+            <Label>PAYMENT GATEWAY</Label>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+              {pgPresets.map(p => (
+                <button key={p.label} onClick={() => setForm({...form, site:p.site, category:p.label})}
+                  style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${form.site===p.site ? C.accent : C.border}`,
+                           background: form.site===p.site ? "rgba(26,184,168,0.15)" : "transparent",
+                           color: form.site===p.site ? C.accent : C.sub, cursor:"pointer", fontSize:12 }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <input value={form.site||""} onChange={e=>setForm({...form,site:e.target.value})}
+              style={{ ...inp, marginBottom:14 }} placeholder="or type custom gateway name..." />
+          </>
+        )}
+
+        {isOT && (
+          <>
+            <Label>APP / SERVICE</Label>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+              {otherPresets.map(p => (
+                <button key={p.label} onClick={() => setForm({...form, site:p.site})}
+                  style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${form.site===p.site ? C.purple : C.border}`,
+                           background: form.site===p.site ? "rgba(199,125,255,0.15)" : "transparent",
+                           color: form.site===p.site ? C.purple : C.sub, cursor:"pointer", fontSize:12 }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <input value={form.site||""} onChange={e=>setForm({...form,site:e.target.value})}
+              style={{ ...inp, marginBottom:14 }} placeholder="or type custom service name..." />
+          </>
+        )}
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+          <div>
+            <Label>ENVIRONMENT</Label>
+            <select value={form.environment||"production"} onChange={e=>setForm({...form,environment:e.target.value})}
+              style={{ ...inp }}>
+              <option value="production">Production</option>
+              <option value="sandbox">Sandbox / Test</option>
+            </select>
+          </div>
+          <div>
+            <Label>RATE LIMIT (req/day)</Label>
+            <select value={form.rateLimit||"1000"} onChange={e=>setForm({...form,rateLimit:e.target.value})}
+              style={{ ...inp }}>
+              <option value="100">100</option>
+              <option value="500">500</option>
+              <option value="1000">1,000</option>
+              <option value="5000">5,000</option>
+              <option value="unlimited">Unlimited</option>
+            </select>
+          </div>
+        </div>
+
+        <Label>PERMISSIONS</Label>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+          {allPermissions.map(p => {
+            const active = (form.permissions||["send_message"]).includes(p.id);
+            return (
+              <button key={p.id} onClick={() => togglePerm(p.id)}
+                style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${active ? C.accent : C.border}`,
+                         background: active ? "rgba(26,184,168,0.15)" : "transparent",
+                         color: active ? C.accent : C.sub, cursor:"pointer", fontSize:12 }}>
+                {active ? "✓ " : ""}{p.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <Label>IP WHITELIST (optional, comma-separated)</Label>
+        <input value={form.ipWhitelist||""} onChange={e=>setForm({...form,ipWhitelist:e.target.value})}
+          style={{ ...inp, marginBottom:18 }} placeholder="192.168.1.1, 10.0.0.0/24 — leave blank for any IP" />
+
+        <div style={{ background:"rgba(26,184,168,0.08)", border:`1px solid rgba(26,184,168,0.2)`, borderRadius:8, padding:"10px 14px", fontSize:12, color:C.accent2, marginBottom:18 }}>
+          💡 The API Key + Secret will be shown <strong>once</strong>. Copy and store them securely.
+        </div>
+        <div style={{ display:"flex", gap:10 }}>
+          <button style={btn()} onClick={createKey}>Generate Key</button>
+          <button style={btn("ghost")} onClick={() => { setModal(null); setForm({}); }}>Cancel</button>
+        </div>
+      </>
+    );
+  };
+
+  // ── KEY CARD ──────────────────────────────────────────────────────
+  const KeyCard = ({ k }) => {
+    const isExpanded = expandedKey === k.id;
+    return (
+      <div style={{ ...card, borderLeft:`3px solid ${k.active ? (k.environment==="sandbox" ? C.orange : C.accent) : C.red}`, transition:"all 0.2s" }}>
+        {/* Top row */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:10, marginBottom:10 }}>
+          <div style={{ flex:1, minWidth:200 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:4 }}>
+              <span style={{ fontWeight:700, fontSize:15 }}>{k.name}</span>
+              <span style={badgeStyle(k.active)}>{k.active ? "● Active" : "✖ Revoked"}</span>
+              {k.environment && <span style={envBadge(k.environment)}>{k.environment}</span>}
+            </div>
+            {k.site && <div style={{ fontSize:12, color:C.sub }}>📌 {k.site}</div>}
+            <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Created {k.createdAt} · Rate limit: {k.rateLimit||"1000"}/day</div>
+          </div>
+          <div style={{ display:"flex", gap:6, flexShrink:0, flexWrap:"wrap" }}>
+            <button onClick={() => setExpandedKey(isExpanded ? null : k.id)}
+              style={{ ...btn("secondary"), fontSize:12 }}>{isExpanded ? "▲ Less" : "▼ Details"}</button>
+            <button onClick={() => { setModal("view-key"); setForm({ _newKey: k }); }}
+              style={{ ...btn("secondary"), fontSize:12 }}>👁 View</button>
+            {k.active && (
+              <button onClick={() => rotateKey(k.id)}
+                style={{ ...btn("secondary"), fontSize:12, color:C.blue }}>🔄 Rotate</button>
+            )}
+            {k.active
+              ? <button onClick={() => revokeKey(k.id)}    style={{ ...btn("secondary"), fontSize:12, color:C.yellow }}>🔒 Revoke</button>
+              : <button onClick={() => reactivateKey(k.id)} style={{ ...btn("secondary"), fontSize:12, color:C.green }}>✓ Reactivate</button>
+            }
+            <button onClick={() => deleteKey(k.id)} style={{ ...btn("secondary"), fontSize:12, color:C.red }}>🗑</button>
+          </div>
+        </div>
+
+        {/* API key preview */}
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ ...monoBox, flex:1, padding:"7px 12px", fontSize:11 }}>
+            <span style={{ color:C.sub, marginRight:6 }}>API Key:</span>
+            {k.key.slice(0,8)}{"•".repeat(12)}
+            <button onClick={() => copy(k.key, `key-${k.id}`)} style={{ marginLeft:8, background:"none", border:"none", color:copiedId===`key-${k.id}` ? C.green : C.sub, cursor:"pointer", fontSize:11 }}>
+              {copiedId===`key-${k.id}` ? "✓ copied" : "copy"}
+            </button>
+          </div>
+        </div>
+
+        {/* Expanded details */}
+        {isExpanded && (
+          <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.border}` }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:10, marginBottom:14 }}>
+              <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:8, padding:"10px 12px" }}>
+                <div style={{ fontSize:10, color:C.sub, fontWeight:700, marginBottom:4 }}>PERMISSIONS</div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                  {(k.permissions||["send_message"]).map(p => (
+                    <span key={p} style={{ fontSize:10, padding:"2px 7px", borderRadius:99, background:"rgba(26,184,168,0.12)", color:C.accent }}>{p.replace("_"," ")}</span>
+                  ))}
+                </div>
+              </div>
+              {k.ipWhitelist && (
+                <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:8, padding:"10px 12px" }}>
+                  <div style={{ fontSize:10, color:C.sub, fontWeight:700, marginBottom:4 }}>IP WHITELIST</div>
+                  <div style={{ fontSize:12, color:C.text, fontFamily:"monospace" }}>{k.ipWhitelist}</div>
+                </div>
+              )}
+              <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:8, padding:"10px 12px" }}>
+                <div style={{ fontSize:10, color:C.sub, fontWeight:700, marginBottom:4 }}>CREATED</div>
+                <div style={{ fontSize:12, color:C.text }}>{k.createdFull || k.createdAt}</div>
+              </div>
+            </div>
+            <div style={{ marginTop:4 }}>
+              <div style={{ fontSize:11, color:C.sub, fontWeight:700, marginBottom:8, textTransform:"uppercase", letterSpacing:"0.06em" }}>Code Snippet</div>
+              <CodeSnippet k={k} />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── KEYS TAB ──────────────────────────────────────────────────────
+  const KeysTab = ({ type }) => {
+    const typeLabels = {
+      website:         { label:"Website Key", icon:"🌐", desc:"Integrate ThynkComm on any website. Each key identifies the source site." },
+      payment_gateway: { label:"Payment Gateway Key", icon:"💳", desc:"Auto-send WhatsApp on payment events — orders, refunds, and subscription charges." },
+      other:           { label:"Integration Key", icon:"🔌", desc:"Connect mobile apps, CRMs, Zapier, or any external tool that needs to trigger WhatsApp." },
+    };
+    const meta = typeLabels[type];
+    const allOfType = (data.apiKeys||[]).filter(k=>k.type===type);
+
+    return (
+      <div>
+        {/* Subheader */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, flexWrap:"wrap", gap:12 }}>
+          <div>
+            <p style={{ color:C.sub, fontSize:13, margin:0 }}>{meta.desc}</p>
+            <div style={{ display:"flex", gap:10, marginTop:8 }}>
+              <span style={{ fontSize:12, color:C.sub }}>
+                <strong style={{ color:C.text }}>{allOfType.filter(k=>k.active).length}</strong> active
+              </span>
+              <span style={{ fontSize:12, color:C.sub }}>
+                <strong style={{ color:C.text }}>{allOfType.filter(k=>!k.active).length}</strong> revoked
+              </span>
+            </div>
+          </div>
+          <button onClick={() => { setModal("create-key"); setForm({ type, permissions:["send_message"] }); }}
+            style={{ ...btn(), fontSize:13, whiteSpace:"nowrap" }}>+ New {meta.label}</button>
+        </div>
+
+        {/* Search + filter bar */}
+        {allOfType.length > 0 && (
+          <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+            <input value={searchQ} onChange={e=>setSearchQ(e.target.value)}
+              style={{ ...inp, maxWidth:260, padding:"8px 12px" }} placeholder="Search by name or site..." />
+            <div style={{ display:"flex", gap:4 }}>
+              {["all","active","revoked"].map(f => (
+                <button key={f} onClick={() => setFilterStatus(f)}
+                  style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${filterStatus===f ? C.accent : C.border}`,
+                           background: filterStatus===f ? "rgba(26,184,168,0.15)" : "transparent",
+                           color: filterStatus===f ? C.accent : C.sub, cursor:"pointer", fontSize:12, fontWeight:600, textTransform:"capitalize" }}>
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {filteredKeys.length === 0 ? (
+          <div style={{ ...card, textAlign:"center", padding:"48px 24px" }}>
+            <div style={{ fontSize:40, marginBottom:14 }}>🔑</div>
+            <div style={{ fontWeight:700, marginBottom:6, fontSize:16 }}>No {meta.label}s yet</div>
+            <div style={{ fontSize:13, color:C.sub, marginBottom:20, maxWidth:320, margin:"0 auto 20px" }}>
+              {meta.desc}
+            </div>
+            <button onClick={() => { setModal("create-key"); setForm({ type, permissions:["send_message"] }); }}
+              style={{ ...btn(), fontSize:13 }}>+ Generate {meta.label}</button>
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {filteredKeys.map(k => <KeyCard key={k.id} k={k} />)}
+            {filteredKeys.length < allOfType.length && (
+              <div style={{ fontSize:12, color:C.sub, textAlign:"center", padding:"8px 0" }}>
+                Showing {filteredKeys.length} of {allOfType.length} keys (filtered)
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Create modal */}
+        {modal === "create-key" && form.type === type && (
+          <Modal title={`New ${meta.label}`} onClose={() => { setModal(null); setForm({}); }}>
+            <CreateKeyForm type={type} />
+          </Modal>
+        )}
+
+        {/* View / new key modal */}
+        {modal === "view-key" && form._newKey && (
+          <Modal title="API Credentials" onClose={() => { setModal(null); setForm({}); }} wide>
+            <div style={{ background:"rgba(255,209,102,0.1)", border:"1px solid rgba(255,209,102,0.3)", borderRadius:8, padding:"10px 14px", fontSize:12, color:C.yellow, marginBottom:18 }}>
+              ⚠️ Copy these credentials now. The secret key will <strong>never</strong> be shown again after you close this dialog.
+            </div>
+
+            {[
+              { label:"KEY NAME",   value:form._newKey.name,   id:"kn", mono:false },
+              { label:"API KEY",    value:form._newKey.key,    id:"kk", mono:true  },
+              { label:"SECRET KEY", value:form._newKey.secret, id:"ks", mono:true  },
+            ].map(row => (
+              <div key={row.id} style={{ marginBottom:14 }}>
+                <Label>{row.label}</Label>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ ...monoBox, flex:1, color: row.mono ? C.accent : C.text, fontSize: row.mono ? 12 : 14 }}>
+                    {row.value}
+                  </div>
+                  <button onClick={() => copy(row.value, row.id)}
+                    style={{ ...btn("secondary"), fontSize:12, whiteSpace:"nowrap" }}>
+                    {copiedId===row.id ? "✓ Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {form._newKey.ipWhitelist && (
+              <div style={{ marginBottom:14 }}>
+                <Label>IP WHITELIST</Label>
+                <div style={{ ...monoBox, color:C.sub }}>{form._newKey.ipWhitelist}</div>
+              </div>
+            )}
+
+            <div style={{ marginBottom:18 }}>
+              <Label>QUICK START — CODE SNIPPET</Label>
+              <CodeSnippet k={form._newKey} />
+            </div>
+
+            <div style={{ marginBottom:18 }}>
+              <Label>AVAILABLE ENDPOINTS</Label>
+              <div style={{ ...monoBox, fontSize:11, lineHeight:2, color:C.sub }}>
+                <span style={{ color:C.accent }}>POST</span> {window.location.origin}/api/send-message{"\n"}
+                <span style={{ color:C.blue  }}>GET </span> {window.location.origin}/api/contacts{"\n"}
+                <span style={{ color:C.accent }}>POST</span> {window.location.origin}/api/contacts{"\n"}
+                <span style={{ color:C.blue  }}>GET </span> {window.location.origin}/api/templates{"\n"}
+                <span style={{ color:C.accent }}>POST</span> {window.location.origin}/api/campaigns
+              </div>
+            </div>
+
+            <button style={{ ...btn(), width:"100%" }} onClick={() => { setModal(null); setForm({}); }}>Done — I've Saved My Credentials</button>
+          </Modal>
+        )}
+      </div>
+    );
+  };
+
+  // ── WEBHOOK TAB ───────────────────────────────────────────────────
+  const WebhooksTab = () => {
+    const tagColors = { Payment:"#2d6cf6", eCommerce:"#96bf48", Automation:"#ff4a00", CRM:"#ff7a59", Support:"#25c16f" };
+    const groups = [...new Set(webhookPlatforms.map(p=>p.tag))];
+
+    return (
+      <div>
+        <p style={{ color:C.sub, fontSize:13, marginBottom:20 }}>
+          Connect external services to your ThynkComm webhook. When events fire (e.g. payment captured), WhatsApp messages get sent automatically.
+        </p>
+
+        {/* Your webhook URL card */}
+        <div style={{ ...card, borderTop:`3px solid ${C.accent}`, marginBottom:24 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
+            <div>
+              <div style={{ fontWeight:700, marginBottom:4 }}>Your ThynkComm Webhook URL</div>
+              <div style={{ fontSize:12, color:C.sub }}>Paste this URL into any platform's webhook settings to receive events.</div>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ ...monoBox, padding:"8px 14px", fontSize:12 }}>{window.location.origin}/api/webhook</div>
+              <button onClick={() => copy(`${window.location.origin}/api/webhook`, "global-wh")}
+                style={{ ...btn(), fontSize:12 }}>{copiedId==="global-wh" ? "✓ Copied!" : "📋 Copy"}</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
+          <div style={{ background:"rgba(26,184,168,0.1)", border:`1px solid rgba(26,184,168,0.2)`, borderRadius:10, padding:"10px 18px" }}>
+            <span style={{ fontWeight:700, color:C.accent }}>{Object.keys(data.webhooks||{}).length}</span>
+            <span style={{ fontSize:12, color:C.sub, marginLeft:6 }}>Connected</span>
+          </div>
+          <div style={{ background:"rgba(255,255,255,0.04)", border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 18px" }}>
+            <span style={{ fontWeight:700, color:C.text }}>{webhookPlatforms.length - Object.keys(data.webhooks||{}).length}</span>
+            <span style={{ fontSize:12, color:C.sub, marginLeft:6 }}>Available</span>
+          </div>
+        </div>
+
+        {/* Platforms grouped by tag */}
+        {groups.map(group => (
+          <div key={group} style={{ marginBottom:24 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+              <span style={{ fontSize:12, fontWeight:700, color:tagColors[group]||C.accent, textTransform:"uppercase", letterSpacing:"0.1em" }}>{group}</span>
+              <div style={{ flex:1, height:1, background:C.border }}></div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:14 }}>
+              {webhookPlatforms.filter(p=>p.tag===group).map(p => {
+                const conn = data.webhooks?.[p.key];
+                return (
+                  <div key={p.key} style={{ ...card, borderTop:`3px solid ${p.color}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                        <div style={{ width:40, height:40, borderRadius:10, background:p.color+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>{p.icon}</div>
+                        <div>
+                          <div style={{ fontWeight:700, fontSize:14 }}>{p.name}</div>
+                          {conn && <div style={badgeStyle(true)}>● Connected</div>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize:12, color:C.sub, marginBottom:10, lineHeight:1.5 }}>{p.desc}</div>
+
+                    {conn && (
+                      <div style={{ background:C.accentLight, borderRadius:8, padding:"8px 10px", marginBottom:10, fontSize:11, color:C.accent2 }}>
+                        Since: {conn.connectedAt} &nbsp;|&nbsp; {conn.url.length>28 ? conn.url.slice(0,28)+"…" : conn.url}
+                        {conn.events?.length > 0 && (
+                          <div style={{ marginTop:4, color:C.sub }}>Events: {conn.events.join(", ").slice(0,50)}{conn.events.join(", ").length>50?"…":""}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Supported events preview */}
+                    {!conn && p.events?.length > 0 && (
+                      <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:10 }}>
+                        {p.events.slice(0,3).map(e => (
+                          <span key={e} style={{ fontSize:10, padding:"2px 6px", borderRadius:99, background:"rgba(255,255,255,0.06)", color:C.sub }}>{e}</span>
+                        ))}
+                        {p.events.length > 3 && <span style={{ fontSize:10, color:C.sub }}>+{p.events.length-3} more</span>}
+                      </div>
+                    )}
+
+                    <div style={{ display:"flex", gap:8 }}>
+                      {conn ? (
+                        <>
+                          <button onClick={() => { setWhModal(p.key); setForm({ webhookUrl:conn.url, whSecret:conn.secret||"", whEvents:conn.events||[] }); }}
+                            style={{ ...btn("secondary"), flex:1, fontSize:12 }}>✏️ Edit</button>
+                          <button onClick={() => disconnectWebhook(p.key)}
+                            style={{ ...btn("secondary"), flex:1, fontSize:12, color:C.red }}>✖ Remove</button>
+                        </>
+                      ) : (
+                        <button onClick={() => { setWhModal(p.key); setForm({ webhookUrl:"", whSecret:"", whEvents:p.events||[] }); }}
+                          style={{ ...btn(), width:"100%", fontSize:12 }}>🔗 Connect</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        {/* Webhook connect modal */}
+        {whModal && (() => {
+          const platform = webhookPlatforms.find(p=>p.key===whModal);
+          return (
+            <Modal title={`Connect ${platform?.name}`} onClose={() => { setWhModal(null); setForm({}); }} wide>
+              {/* Step 1 */}
+              <div style={{ background:"rgba(26,184,168,0.08)", border:`1px solid rgba(26,184,168,0.2)`, borderRadius:10, padding:"12px 16px", marginBottom:18 }}>
+                <div style={{ fontWeight:700, fontSize:13, marginBottom:8, color:C.accent }}>Step 1 — Copy your ThynkComm webhook URL</div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ ...monoBox, flex:1, fontSize:12 }}>{window.location.origin}/api/webhook</div>
+                  <button onClick={() => copy(`${window.location.origin}/api/webhook`, "modal-wh")}
+                    style={{ ...btn("secondary"), fontSize:11, padding:"6px 12px", whiteSpace:"nowrap" }}>
+                    {copiedId==="modal-wh" ? "✓" : "Copy"}
+                  </button>
+                </div>
+                <div style={{ fontSize:11, color:C.sub, marginTop:8 }}>
+                  Paste this URL into <strong style={{ color:C.text }}>{platform?.name}</strong>'s webhook configuration.
+                </div>
+              </div>
+
+              {/* Supported events */}
+              {platform?.events?.length > 0 && (
+                <div style={{ marginBottom:18 }}>
+                  <Label>RECOMMENDED EVENTS TO SUBSCRIBE</Label>
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    {platform.events.map(e => (
+                      <span key={e} style={{ fontSize:11, padding:"3px 9px", borderRadius:99, background:"rgba(255,255,255,0.06)", color:C.sub }}>{e}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2 */}
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:10, color:C.text }}>Step 2 — (Optional) Paste {platform?.name}'s webhook signing secret</div>
+              <input value={form.whSecret||""} onChange={e=>setForm({...form,whSecret:e.target.value})}
+                style={{ ...inp, marginBottom:18 }} placeholder="Signing secret / webhook secret (for verification)" />
+
+              {/* Step 3 */}
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:10, color:C.text }}>Step 3 — Confirm</div>
+              <Label>PLATFORM WEBHOOK CALLBACK URL (if required)</Label>
+              <input value={form.webhookUrl||""} onChange={e=>setForm({...form,webhookUrl:e.target.value})}
+                style={{ ...inp, marginBottom:18 }} placeholder="Leave blank if not required" />
+
+              <div style={{ display:"flex", gap:10 }}>
+                <button style={btn()} onClick={() => connectWebhook(whModal)}>Save Connection</button>
+                <button style={btn("ghost")} onClick={() => { setWhModal(null); setForm({}); }}>Cancel</button>
+              </div>
+            </Modal>
+          );
+        })()}
+      </div>
+    );
+  };
+
+  // ── RENDER ────────────────────────────────────────────────────────
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom:24 }}>
+        <h2 style={{ margin:"0 0 4px", fontSize:18, fontWeight:800 }}>Integrations & API Keys</h2>
+        <p style={{ color:C.sub, fontSize:13, margin:0 }}>
+          Generate API keys for websites, payment gateways, and apps. Connect external services via webhooks.
+        </p>
+      </div>
+
+      {/* Stats row */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
+        {[
+          { label:"Total Keys",    value:(data.apiKeys||[]).length,                               color:C.accent },
+          { label:"Active Keys",   value:(data.apiKeys||[]).filter(k=>k.active).length,           color:C.green  },
+          { label:"Website Keys",  value:(data.apiKeys||[]).filter(k=>k.type==="website").length,  color:C.blue   },
+          { label:"Connected PGs", value:Object.keys(data.webhooks||{}).length,                   color:C.purple },
+        ].map(s => (
+          <div key={s.label} style={{ ...card, padding:"14px 18px" }}>
+            <div style={{ fontSize:24, fontWeight:800, color:s.color }}>{s.value}</div>
+            <div style={{ fontSize:12, color:C.sub, marginTop:2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:4, marginBottom:22, background:C.card, padding:5, borderRadius:12, width:"fit-content", border:`1px solid ${C.border}`, flexWrap:"wrap" }}>
+        {[
+          { id:"websites", label:"🌐 Website Keys" },
+          { id:"pg",       label:"💳 Payment Gateways" },
+          { id:"others",   label:"🔌 Other Apps" },
+          { id:"webhooks", label:"⚡ Webhooks" },
+        ].map(t => (
+          <button key={t.id} style={tabStyle(t.id)} onClick={() => { setActiveTab(t.id); setSearchQ(""); setFilterStatus("all"); }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {activeTab === "webhooks"
+        ? <WebhooksTab />
+        : <KeysTab type={tabType} />
+      }
+    </div>
+  );
 }
+
 
 // ─── WHITE LABEL ──────────────────────────────────────────────────
 function WhiteLabel() {
