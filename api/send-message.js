@@ -149,7 +149,7 @@ module.exports = async function handler(req, res) {
   let metaResponse, metaData;
   try {
     metaResponse = await fetch(
-      `https://graph.facebook.com/v19.0/${phoneId}/messages`,
+      `https://graph.facebook.com/v25.0/${phoneId}/messages`,
       {
         method:  "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
