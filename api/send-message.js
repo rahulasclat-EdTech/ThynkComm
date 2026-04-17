@@ -188,6 +188,8 @@ module.exports = async function handler(req, res) {
       status:        "sent",
       direction:     "outbound",
       wa_message_id: messageId,
+      source:        authSource === "dashboard" ? "portal" : "api",
+      template_name: template_name || null,
       ...(siteId ? { tag: siteId } : {}),
     }]);
   } catch (dbErr) {
