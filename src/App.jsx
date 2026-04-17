@@ -128,6 +128,10 @@ function GlobalStyles() {
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #1ab8a860; border-radius: 99px; }
     select option { background-color: #0d1821 !important; color: #f0f8ff !important; }
+    @keyframes pulse {
+      0%,100% { opacity:1; transform:scale(1); }
+      50% { opacity:0.4; transform:scale(1.3); }
+    }
   `}</style>;
 }
 function Stat({ icon, label, value, color }) {
@@ -1034,27 +1038,27 @@ function MessageLog() {
   const [logs, setLogs]           = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
-  const [filter, setFilter]       = useState("all");   // all | sent | failed | delivered | read
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all"); // all | portal | api
   const [search, setSearch]       = useState("");
   const [page, setPage]           = useState(1);
+  const [lastFetched, setLastFetched] = useState(null);
   const PER_PAGE = 20;
 
-  // Fetch from Supabase via a lightweight proxy approach
-  // We hit /api/send-message with GET if supported, otherwise use direct Supabase REST
   useEffect(() => { fetchLogs(); }, []);
 
   const fetchLogs = async () => {
     setLoading(true);
     setError(null);
     try {
-      // Try to fetch from Supabase REST directly using env-based URL
-      // The app stores SUPABASE creds on the server side; we call a thin endpoint
       const r = await fetch("/api/messages", { headers: getWAHeaders() });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
-      setLogs(Array.isArray(data) ? data : (data.data || []));
+      const rows = Array.isArray(data) ? data : (data.data || []);
+      setLogs(rows);
+      localStorage.setItem("msg_log_cache", JSON.stringify(rows));
+      setLastFetched(new Date());
     } catch (e) {
-      // Graceful degradation — show localStorage-based fallback
       const stored = localStorage.getItem("msg_log_cache");
       if (stored) {
         setLogs(JSON.parse(stored));
@@ -1063,6 +1067,14 @@ function MessageLog() {
         setError("Could not load message log. Make sure /api/messages exists and SUPABASE_URL / SUPABASE_ANON_KEY are set.");
       }
     } finally { setLoading(false); }
+  };
+
+  // Derive source for legacy rows that may not have source field
+  const deriveSource = (m) => {
+    if (m.source) return m.source;
+    // Legacy: if tag looks like an API key fragment it's an API call
+    if (m.tag && m.tag !== "portal" && !m.tag.startsWith("site")) return "api";
+    return "portal";
   };
 
   const statusColor = {
@@ -1074,11 +1086,13 @@ function MessageLog() {
   };
 
   const filtered = logs.filter(m => {
-    if (filter !== "all" && m.status !== filter) return false;
+    if (statusFilter !== "all" && m.status !== statusFilter) return false;
+    if (sourceFilter !== "all" && deriveSource(m) !== sourceFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       return (m.to_number||"").includes(q) ||
              (m.body||"").toLowerCase().includes(q) ||
+             (m.template_name||"").toLowerCase().includes(q) ||
              (m.tag||"").toLowerCase().includes(q);
     }
     return true;
@@ -1093,18 +1107,47 @@ function MessageLog() {
     delivered: logs.filter(m=>m.status==="delivered").length,
     failed:    logs.filter(m=>m.status==="failed").length,
     read:      logs.filter(m=>m.status==="read").length,
+    portal:    logs.filter(m=>deriveSource(m)==="portal").length,
+    api:       logs.filter(m=>deriveSource(m)==="api").length,
   };
 
   const exportCSV = () => {
-    const header = "to_number,body,status,direction,source,created_at";
+    const header = "time,to_number,message,template_name,status,direction,source,tag";
     const rows   = filtered.map(m =>
-      [m.to_number, `"${(m.body||"").replace(/"/g,'""')}"`, m.status, m.direction||"outbound", m.tag||"portal", m.created_at||""].join(",")
+      [
+        m.created_at||"",
+        m.to_number||"",
+        `"${(m.body||"").replace(/"/g,'""')}"`,
+        m.template_name||"",
+        m.status||"",
+        m.direction||"outbound",
+        deriveSource(m),
+        m.tag||"",
+      ].join(",")
     );
     const blob = new Blob([[header,...rows].join("\n")], { type:"text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `message_log_${Date.now()}.csv`;
     a.click();
+  };
+
+  const SourceBadge = ({ m }) => {
+    const src = deriveSource(m);
+    if (src === "api") return (
+      <span style={{ fontSize:11, color:"#4db8ff", background:"#e8f4ff18",
+                     border:"1px solid #4db8ff40", padding:"2px 8px", borderRadius:5,
+                     fontWeight:600, whiteSpace:"nowrap" }}>
+        🔌 API
+      </span>
+    );
+    return (
+      <span style={{ fontSize:11, color:C.accent, background:`${C.accent}15`,
+                     border:`1px solid ${C.accent}40`, padding:"2px 8px", borderRadius:5,
+                     fontWeight:600, whiteSpace:"nowrap" }}>
+        🖥️ Portal
+      </span>
+    );
   };
 
   return (
@@ -1115,6 +1158,11 @@ function MessageLog() {
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>🗂️ Message Log</h2>
           <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>
             All messages sent via the Portal and API calls
+            {lastFetched && (
+              <span style={{ marginLeft:10, fontSize:11, color:C.accent }}>
+                · Last synced {lastFetched.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}
+              </span>
+            )}
           </p>
         </div>
         <div style={{ display:"flex", gap:8 }}>
@@ -1123,44 +1171,82 @@ function MessageLog() {
         </div>
       </div>
 
-      {/* Stats bar */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:18 }}>
+      {/* Stats bar — 7 tiles */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:8, marginBottom:18 }}>
         {[
-          ["Total",     stats.total,     C.text,     "#1e2d3d"],
-          ["Sent",      stats.sent,      C.accent,   C.accentLight],
-          ["Delivered", stats.delivered, "#4db8ff",  "#e8f4ff"],
-          ["Read",      stats.read,      "#c77dff",  "#f5eeff"],
-          ["Failed",    stats.failed,    C.red,      "#fff0f0"],
+          ["Total",     stats.total,     C.text,     "#1a2940"],
+          ["Sent",      stats.sent,      C.accent,   `${C.accent}18`],
+          ["Delivered", stats.delivered, "#4db8ff",  "#4db8ff18"],
+          ["Read",      stats.read,      "#c77dff",  "#c77dff18"],
+          ["Failed",    stats.failed,    C.red,      `${C.red}18`],
+          ["Portal",    stats.portal,    C.accent,   `${C.accent}10`],
+          ["API",       stats.api,       "#4db8ff",  "#4db8ff10"],
         ].map(([label, val, color, bg]) => (
-          <div key={label} style={{ ...card, padding:"12px 14px", textAlign:"center", background:bg, border:`1px solid ${color}30` }}>
-            <div style={{ fontSize:22, fontWeight:800, color }}>{val}</div>
-            <div style={{ fontSize:11, color, fontWeight:600, marginTop:2 }}>{label}</div>
+          <div key={label} style={{ ...card, padding:"10px 12px", textAlign:"center",
+                                    background:bg, border:`1px solid ${color}30`,
+                                    cursor: label==="Portal"||label==="API" ? "pointer" : "default" }}
+               onClick={()=>{ if(label==="Portal") { setSourceFilter("portal"); setPage(1); }
+                               else if(label==="API") { setSourceFilter("api"); setPage(1); } }}>
+            <div style={{ fontSize:20, fontWeight:800, color }}>{val}</div>
+            <div style={{ fontSize:10, color, fontWeight:600, marginTop:2 }}>{label}</div>
           </div>
         ))}
       </div>
 
+      {/* Source split info */}
+      <div style={{ ...card, marginBottom:14, padding:"10px 16px",
+                    background:`${C.accent}08`, border:`1px solid ${C.accent}20`,
+                    display:"flex", gap:20, alignItems:"center", flexWrap:"wrap" }}>
+        <div style={{ fontSize:12, color:C.accent2, fontWeight:700 }}>📊 Source Breakdown</div>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <span style={{ fontSize:12, color:C.sub }}>🖥️ Portal sends:</span>
+          <span style={{ fontWeight:700, color:C.accent, fontSize:13 }}>{stats.portal}</span>
+          <span style={{ fontSize:11, color:C.sub }}>({logs.length ? Math.round(stats.portal/logs.length*100) : 0}%)</span>
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <span style={{ fontSize:12, color:C.sub }}>🔌 API sends:</span>
+          <span style={{ fontWeight:700, color:"#4db8ff", fontSize:13 }}>{stats.api}</span>
+          <span style={{ fontSize:11, color:C.sub }}>({logs.length ? Math.round(stats.api/logs.length*100) : 0}%)</span>
+        </div>
+        <div style={{ fontSize:11, color:C.sub, marginLeft:"auto" }}>
+          Click Portal or API tile above to filter
+        </div>
+      </div>
+
       {/* Filters */}
-      <div style={{ ...card, display:"flex", gap:10, alignItems:"center", marginBottom:14, padding:"10px 14px", flexWrap:"wrap" }}>
+      <div style={{ ...card, display:"flex", gap:10, alignItems:"center", marginBottom:14,
+                    padding:"10px 14px", flexWrap:"wrap" }}>
         <input
           value={search}
           onChange={e=>{ setSearch(e.target.value); setPage(1); }}
-          placeholder="🔍 Search by number or message…"
-          style={{ ...inp, flex:1, minWidth:200, padding:"8px 12px", fontSize:13 }}
+          placeholder="🔍 Search by number, message or template name…"
+          style={{ ...inp, flex:1, minWidth:220, padding:"8px 12px", fontSize:13 }}
         />
-        <select
-          value={filter}
-          onChange={e=>{ setFilter(e.target.value); setPage(1); }}
-          style={{ ...inp, width:140, fontSize:13 }}
-        >
+        <select value={statusFilter} onChange={e=>{ setStatusFilter(e.target.value); setPage(1); }}
+          style={{ ...inp, width:145, fontSize:13 }}>
           <option value="all">All Statuses</option>
-          <option value="sent">Sent</option>
-          <option value="delivered">Delivered</option>
-          <option value="read">Read</option>
-          <option value="failed">Failed</option>
-          <option value="pending">Pending</option>
+          <option value="sent">✅ Sent</option>
+          <option value="delivered">📨 Delivered</option>
+          <option value="read">👁️ Read</option>
+          <option value="failed">❌ Failed</option>
+          <option value="pending">⏳ Pending</option>
         </select>
-        <div style={{ fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>
-          {filtered.length} record{filtered.length !== 1 ? "s" : ""}
+        <select value={sourceFilter} onChange={e=>{ setSourceFilter(e.target.value); setPage(1); }}
+          style={{ ...inp, width:130, fontSize:13 }}>
+          <option value="all">All Sources</option>
+          <option value="portal">🖥️ Portal</option>
+          <option value="api">🔌 API</option>
+        </select>
+        <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+          {(statusFilter !== "all" || sourceFilter !== "all" || search) && (
+            <button style={{ ...btn("ghost"), fontSize:11, padding:"5px 10px", color:C.sub }}
+              onClick={()=>{ setStatusFilter("all"); setSourceFilter("all"); setSearch(""); setPage(1); }}>
+              ✕ Clear
+            </button>
+          )}
+          <div style={{ fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>
+            {filtered.length} record{filtered.length !== 1 ? "s" : ""}
+          </div>
         </div>
       </div>
 
@@ -1177,11 +1263,23 @@ function MessageLog() {
         <div style={{ ...card, textAlign:"center", padding:"50px 20px" }}>
           <div style={{ fontSize:48, marginBottom:12 }}>🗂️</div>
           <h3 style={{ margin:"0 0 8px" }}>No messages found</h3>
-          <p style={{ color:C.sub, fontSize:14, margin:0 }}>
-            {filter !== "all" || search
+          <p style={{ color:C.sub, fontSize:14, margin:"0 0 16px" }}>
+            {statusFilter !== "all" || sourceFilter !== "all" || search
               ? "Try changing your filters."
               : "Messages sent via Send Single, Campaigns, or API will appear here."}
           </p>
+          <div style={{ fontSize:12, color:C.sub, maxWidth:420, margin:"0 auto",
+                        background:`${C.accent}08`, borderRadius:10, padding:"12px 16px",
+                        border:`1px solid ${C.accent}20`, textAlign:"left" }}>
+            <div style={{ fontWeight:700, color:C.accent, marginBottom:6 }}>💡 Setup required</div>
+            <div style={{ lineHeight:1.7 }}>
+              Messages are logged to <strong>Supabase</strong>.<br/>
+              Make sure <code style={{ color:C.accent }}>SUPABASE_URL</code> and{" "}
+              <code style={{ color:C.accent }}>SUPABASE_ANON_KEY</code> are set in your{" "}
+              <code>.env</code> file, and your <code>messages</code> table exists with columns:{" "}
+              <code>to_number, body, status, direction, source, template_name, wa_message_id, tag, created_at</code>.
+            </div>
+          </div>
         </div>
       ) : (
         <>
@@ -1189,7 +1287,7 @@ function MessageLog() {
             <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
               <thead>
                 <tr style={{ borderBottom:`1px solid ${C.border}`, background:"#0d1821" }}>
-                  {["Time","Recipient","Message / Template","Status","Direction","Source"].map(h => (
+                  {["Time","Recipient","Message / Template","Status","Dir","Source"].map(h => (
                     <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11,
                                         fontWeight:700, color:C.sub, whiteSpace:"nowrap" }}>
                       {h}
@@ -1200,10 +1298,12 @@ function MessageLog() {
               <tbody>
                 {paginated.map((m, i) => {
                   const [sc, sbg] = statusColor[m.status] || [C.sub,"#1e2a38"];
-                  const isTemplate = (m.body||"").startsWith("[template:");
+                  // Prefer template_name field (new) over parsing body string (legacy)
+                  const tplName   = m.template_name || ((m.body||"").startsWith("[template:") ? (m.body||"").replace(/^\[template:\s*/,"").replace(/\]$/,"") : null);
+                  const isTemplate = !!tplName;
                   const displayBody = isTemplate
-                    ? `📋 ${(m.body||"").replace(/^\[template:\s*/,"").replace(/\]$/,"")}`
-                    : (m.body||"—").slice(0,80) + ((m.body||"").length > 80 ? "…" : "");
+                    ? <span>📋 <strong style={{ color:C.purple }}>{tplName}</strong></span>
+                    : <span style={{ color:C.text }}>{(m.body||"—").slice(0,80)}{(m.body||"").length>80?"…":""}</span>;
                   return (
                     <tr key={m.id||i}
                       style={{ borderBottom:`1px solid ${C.border}30`,
@@ -1212,28 +1312,23 @@ function MessageLog() {
                         {m.created_at ? new Date(m.created_at).toLocaleString("en-IN",
                           { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }) : "—"}
                       </td>
-                      <td style={{ padding:"10px 14px", fontWeight:600, fontFamily:"monospace" }}>
+                      <td style={{ padding:"10px 14px", fontWeight:600, fontFamily:"monospace", fontSize:12 }}>
                         +{(m.to_number||"").replace(/^\+/,"")}
                       </td>
-                      <td style={{ padding:"10px 14px", maxWidth:300, overflow:"hidden",
-                                   textOverflow:"ellipsis", whiteSpace:"nowrap",
-                                   color: isTemplate ? C.purple : C.text }}>
+                      <td style={{ padding:"10px 14px", maxWidth:280, overflow:"hidden",
+                                   textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                         {displayBody}
                       </td>
                       <td style={{ padding:"10px 14px" }}>
                         <span style={{ ...pill(sc,sbg), fontSize:11, padding:"3px 9px" }}>
-                          {m.status||"unknown"}
+                          {(m.status||"unknown")}
                         </span>
                       </td>
                       <td style={{ padding:"10px 14px", color:C.sub, fontSize:12 }}>
-                        {m.direction === "inbound" ? "⬇️ In" : "⬆️ Out"}
+                        {m.direction === "inbound" ? "⬇️" : "⬆️"}
                       </td>
                       <td style={{ padding:"10px 14px" }}>
-                        <span style={{ fontSize:11, color: m.tag ? C.purple : C.sub,
-                                       background: m.tag ? `${C.purple}15` : "transparent",
-                                       padding:"2px 7px", borderRadius:5 }}>
-                          {m.tag || "portal"}
-                        </span>
+                        <SourceBadge m={m} />
                       </td>
                     </tr>
                   );
@@ -1268,7 +1363,9 @@ function MessageTemplate() {
   const [showGuide, setShowGuide]   = useState(false);
   const [submitting, setSubmitting] = useState(null); // template id being submitted
   const [syncMsg, setSyncMsg]       = useState("");
+  const [syncTime, setSyncTime]     = useState(null);
   const [metaStatusMap, setMetaStatusMap] = useState({}); // name -> Meta status
+  const [showPreFlight, setShowPreFlight] = useState(null); // template id for pre-flight modal
 
   const emptyForm = {
     name: "", category: "MARKETING", language: "en_US", body: "",
@@ -1278,8 +1375,20 @@ function MessageTemplate() {
 
   const save = (ts) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(ts)); setTemplates(ts); };
 
+
   // Sync Meta approval statuses on load
   useEffect(() => { syncMetaStatuses(); }, []);
+
+  // Auto-refresh every 60 s while any template is PENDING
+  useEffect(() => {
+    const hasPending = templates.some(t => {
+      const s = (metaStatusMap[t.name] || t.status || "Draft").toUpperCase();
+      return s === "PENDING";
+    });
+    if (!hasPending) return;
+    const id = setInterval(() => syncMetaStatuses(), 60000);
+    return () => clearInterval(id);
+  }, [templates, metaStatusMap]);
 
   const syncMetaStatuses = async () => {
     try {
@@ -1299,6 +1408,7 @@ function MessageTemplate() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
         return updated;
       });
+      setSyncTime(new Date());
       setSyncMsg("✅ Synced with Meta");
       setTimeout(() => setSyncMsg(""), 3000);
     } catch (_) {}
@@ -1448,7 +1558,21 @@ function MessageTemplate() {
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Message Templates</h2>
           <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>
             Create, submit and track WhatsApp message template approvals
+            {syncTime && (
+              <span style={{ marginLeft:10, fontSize:11, color:C.accent }}>
+                · Synced {syncTime.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}
+              </span>
+            )}
           </p>
+          {templates.some(t=>(metaStatusMap[t.name]||t.status||"Draft").toUpperCase()==="PENDING") && (
+            <div style={{ marginTop:5, fontSize:11, color:C.yellow,
+                          display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ animation:"pulse 2s infinite",
+                             display:"inline-block", width:7, height:7,
+                             borderRadius:"50%", background:C.yellow }}/>
+              Auto-refreshing every 60s — pending approvals detected
+            </div>
+          )}
         </div>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
           {syncMsg && <span style={{ fontSize:12, color:C.accent }}>{syncMsg}</span>}
@@ -1467,6 +1591,7 @@ function MessageTemplate() {
         <button
           onClick={() => setShowGuide(g => !g)}
           style={{
+
             width:"100%", background:`${C.accent}12`, border:"none",
             padding:"12px 16px", cursor:"pointer", textAlign:"left",
             display:"flex", justifyContent:"space-between", alignItems:"center",
@@ -1548,9 +1673,123 @@ function MessageTemplate() {
               </code>
               <span style={{ color:C.sub }}> → Variables will be filled in when sending.</span>
             </div>
+
+            {/* Approval checklist + Common rejections */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginTop:14 }}>
+              <div style={{ background:"#0d1f2d", borderRadius:10, padding:14, border:`1px solid ${C.border}` }}>
+                <div style={{ fontWeight:700, fontSize:13, marginBottom:8, color:C.accent }}>✅ Pre-Approval Checklist</div>
+                {[
+                  ["Identify your brand clearly in the message body","Make sure the recipient knows who is sending"],
+                  ["Use variables {{1}} for personalisation","Named variables help reduce spam risk"],
+                  ["No ALL-CAPS spam words: FREE, WIN, CLICK NOW","Meta automatically rejects high-spam-risk text"],
+                  ["No URLs in the body — use a Button instead","External links in body are a common rejection cause"],
+                  ["Keep body under 1024 characters","Longer messages need extra review time"],
+                  ["Footer: include opt-out instruction","e.g. 'Reply STOP to unsubscribe'"],
+                ].map(([rule, tip], i) => (
+                  <div key={i} style={{ fontSize:12, color:C.sub, marginBottom:6, display:"flex", gap:6 }}>
+                    <span style={{ color:C.accent, flexShrink:0 }}>✓</span>
+                    <span>
+                      <span style={{ color:C.text }}>{rule}</span>
+                      {" — "}<span style={{ fontSize:11 }}>{tip}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ background:"#0d1f2d", borderRadius:10, padding:14, border:`1px solid ${C.border}` }}>
+                <div style={{ fontWeight:700, fontSize:13, marginBottom:8, color:C.red }}>🚫 Common Rejection Reasons</div>
+                {[
+                  ["Template contains a URL in the body text","Move links to a URL button instead"],
+                  ["Brand name not mentioned","Add your company name to body: \"From [Brand]:\""],
+                  ["Missing opt-out instruction","Add footer: \"Reply STOP to unsubscribe\""],
+                  ["Body looks like phishing / urgency language","Avoid \"ACT NOW\", \"LIMITED TIME\", excessive !"],
+                  ["Template duplicates an existing one","Change the name and slightly alter the content"],
+                  ["Variable count mismatch","{{1}} used in body but not defined in component list"],
+                ].map(([reason, fix], i) => (
+                  <div key={i} style={{ fontSize:12, marginBottom:6 }}>
+                    <div style={{ color:C.red, marginBottom:1 }}>✗ {reason}</div>
+                    <div style={{ color:C.sub, fontSize:11 }}>→ {fix}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
+
+      {/* ── Pre-flight submission modal ── */}
+      {showPreFlight !== null && (() => {
+        const t = templates.find(x => x.id === showPreFlight);
+        if (!t) return null;
+        const checks = [
+          { label:"Template name uses only lowercase, numbers, underscores", ok:/^[a-z0-9_]+$/.test(t.name||"") },
+          { label:"Body is not empty", ok:!!(t.body||"").trim() },
+          { label:"Body is under 1024 characters", ok:(t.body||"").length <= 1024 },
+          { label:"Header is under 60 characters", ok:(t.header||"").length <= 60 },
+          { label:"Footer is under 60 characters", ok:(t.footer||"").length <= 60 },
+          { label:"Body does NOT contain a bare URL (use a button instead)", ok:!/(https?:\/\/\S+)/.test(t.body||"") },
+          { label:"No ALL-CAPS spam words (FREE, WIN, CLICK NOW)", ok:!/\b(FREE|WIN|CLICK NOW|LIMITED TIME|ACT NOW)\b/i.test(t.body||"") },
+          { label:"Category is set", ok:!!(t.category) },
+          { label:"Language is set", ok:!!(t.language) },
+        ];
+        const passCount = checks.filter(c=>c.ok).length;
+        const allPass   = passCount === checks.length;
+        return (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:9999,
+                        display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ background:C.card, borderRadius:16, padding:28, maxWidth:540, width:"90%",
+                          border:`1.5px solid ${allPass ? C.accent : C.yellow}`, boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>🚀 Submit "{t.name}" to Meta</h3>
+                <button onClick={()=>setShowPreFlight(null)}
+                  style={{ background:"none", border:"none", color:C.sub, fontSize:20, cursor:"pointer" }}>✕</button>
+              </div>
+
+              {/* Score */}
+              <div style={{ textAlign:"center", marginBottom:16, padding:"12px",
+                            background: allPass ? `${C.accent}15` : `${C.yellow}15`,
+                            borderRadius:10, border:`1px solid ${allPass ? C.accent : C.yellow}40` }}>
+                <div style={{ fontSize:28, fontWeight:900, color: allPass ? C.accent : C.yellow }}>
+                  {passCount}/{checks.length}
+                </div>
+                <div style={{ fontSize:12, color:C.sub, marginTop:2 }}>
+                  {allPass ? "✅ All checks passed — ready to submit!" : "⚠️ Fix issues before submitting for best results"}
+                </div>
+              </div>
+
+              {/* Checklist */}
+              <div style={{ marginBottom:20, maxHeight:260, overflowY:"auto" }}>
+                {checks.map((c,i) => (
+                  <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start",
+                                        marginBottom:7, fontSize:12 }}>
+                    <span style={{ color: c.ok ? C.accent : C.red, flexShrink:0, marginTop:1 }}>
+                      {c.ok ? "✅" : "❌"}
+                    </span>
+                    <span style={{ color: c.ok ? C.text : C.red }}>{c.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Action buttons */}
+              <div style={{ display:"flex", gap:10 }}>
+                <button style={{ ...btn(), flex:1, opacity: submitting===t.id ? 0.7 : 1 }}
+                  disabled={submitting===t.id}
+                  onClick={async ()=>{ setShowPreFlight(null); await submitToMeta(t); }}>
+                  {submitting===t.id ? "⏳ Submitting…" : "🚀 Submit to Meta for Approval"}
+                </button>
+                <button style={{ ...btn("ghost") }} onClick={()=>setShowPreFlight(null)}>
+                  Cancel
+                </button>
+              </div>
+              {!allPass && (
+                <div style={{ marginTop:10, fontSize:11, color:C.yellow, textAlign:"center" }}>
+                  ⚠️ You can still submit with warnings — Meta may reject templates with issues.
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Create / Edit Form ── */}
       {showAdd && (
@@ -1572,6 +1811,7 @@ function MessageTemplate() {
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
                   <div style={{ gridColumn:"1/-1" }}>
                     <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE NAME *</label>
+
                     <input
                       value={form.name}
                       onChange={e => setForm({ ...form, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"") })}
@@ -1814,7 +2054,7 @@ function MessageTemplate() {
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   {(isDraft || isRejected) && (
                     <button
-                      onClick={() => submitToMeta(t)}
+                      onClick={() => setShowPreFlight(t.id)}
                       disabled={submitting === t.id}
                       style={{
                         ...btn(), fontSize:12, padding:"7px 14px",
@@ -1822,17 +2062,28 @@ function MessageTemplate() {
                         flex:1,
                       }}
                     >
-                      {submitting === t.id ? "⏳ Submitting…" : "🚀 Submit to Meta for Approval"}
+                      {submitting === t.id ? "⏳ Submitting…" : "🚀 Submit for Approval"}
                     </button>
                   )}
                   {isPending && (
-                    <button onClick={syncMetaStatuses} style={{ ...btn("secondary"), fontSize:12, padding:"7px 14px", flex:1 }}>
-                      🔄 Check Approval Status
-                    </button>
+                    <div style={{ flex:1 }}>
+                      <button onClick={syncMetaStatuses} style={{ ...btn("secondary"), fontSize:12, padding:"7px 14px", width:"100%" }}>
+                        🔄 Check Approval Status
+                      </button>
+                      <div style={{ fontSize:10, color:C.yellow, marginTop:4, textAlign:"center" }}>
+                        Auto-checking every 60s · {t.metaId ? `Meta ID: ${t.metaId}` : "Submitted to Meta"}
+                      </div>
+                    </div>
                   )}
                   {isApproved && (
-                    <div style={{ fontSize:12, color:C.accent, padding:"7px 0", fontWeight:600 }}>
-                      ✅ Approved — ready to use in campaigns
+                    <div style={{ flex:1, padding:"7px 12px", background:`${C.accent}15`,
+                                  borderRadius:8, border:`1px solid ${C.accent}30`,
+                                  display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontSize:16 }}>✅</span>
+                      <div>
+                        <div style={{ fontSize:12, color:C.accent, fontWeight:700 }}>Approved by Meta</div>
+                        <div style={{ fontSize:11, color:C.sub }}>Ready to use in campaigns</div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1842,6 +2093,7 @@ function MessageTemplate() {
         </div>
       )}
     </div>
+
   );
 }
 function ListTemplate() {
