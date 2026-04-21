@@ -7,9 +7,9 @@ function getWAHeaders() {
     const a = accounts[0];
     if (!a) return {};
     return {
-      "x-wa-token": a.token || "",
-      "x-wa-phone-id": a.phone_number_id || "",
-      "x-wa-waba-id": a.waba_id || "",
+      "x-wa-token": (a.token || "").trim(),
+      "x-wa-phone-id": (a.phone_number_id || "").trim(),
+      "x-wa-waba-id": (a.waba_id || "").trim(),
     };
   } catch { return {}; }
 }
@@ -286,7 +286,14 @@ function WAAccount() {
     }
     setSaving(true);
     setTimeout(() => {
-      const newAccounts = [...accounts, { ...form, id: Date.now(), connected_at: new Date().toISOString() }];
+      const trimmedForm = {
+        ...form,
+        token:           (form.token           || "").trim(),
+        phone_number_id: (form.phone_number_id || "").trim(),
+        waba_id:         (form.waba_id         || "").trim(),
+        display_name:    (form.display_name    || "").trim(),
+      };
+      const newAccounts = [...accounts, { ...trimmedForm, id: Date.now(), connected_at: new Date().toISOString() }];
       localStorage.setItem("wa_accounts", JSON.stringify(newAccounts));
       setAccounts(newAccounts);
       setForm({ token:"", phone_number_id:"", waba_id:"", display_name:"" });
