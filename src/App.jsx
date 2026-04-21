@@ -1505,14 +1505,17 @@ function MessageTemplate() {
     const nameOk = /^[a-z0-9_]+$/.test(form.name);
     if (!nameOk) return alert("Template name must use only lowercase letters, numbers and underscores (no spaces).");
     const validButtons = (form.buttons || []).filter(b => b.text && b.value);
+    // Always normalize variables to {{1}} format before saving
+    const fixVars = (text) => text ? text.replace(/\[(?:Variable|Var)\s*(\d+)\]/gi, "{{$1}}") : text;
+    const cleanForm = { ...form, body: fixVars(form.body), header: fixVars(form.header) };
     if (editId !== null) {
       save(templates.map(t => t.id === editId
-        ? { ...form, buttons: validButtons, id: editId, status: t.status }
+        ? { ...cleanForm, buttons: validButtons, id: editId, status: t.status }
         : t
       ));
     } else {
       save([...templates, {
-        id: Date.now(), ...form,
+        id: Date.now(), ...cleanForm,
         buttons: validButtons,
         status: "Draft",
       }]);
@@ -1537,7 +1540,8 @@ function MessageTemplate() {
       const normalizeVars = (text) => {
         if (!text) return text;
         // [Var 1] → {{1}}, [Var 2] → {{2}} etc.
-        return text.replace(/\[Var\s*(\d+)\]/gi, "{{$1}}");
+        // Handle all display variants: [Var 1], [Variable 1], [Var1] etc.
+        return text.replace(/\[(?:Variable|Var)\s*(\d+)\]/gi, "{{$1}}");
       };
 
       // Extract {{1}}, {{2}} etc. from text and build example array
