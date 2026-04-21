@@ -1,15 +1,56 @@
 import { useState, useRef, useEffect } from "react";
 
 // ─── CREDENTIAL HELPER ────────────────────────────────────────────
+// Reads from localStorage first; if empty, fetches from /api/wa-config (env vars).
+// This means credentials entered in Vercel env vars are always the fallback —
+// users never need to re-enter them after a cache clear.
+async function getWAHeadersAsync() {
+  try {
+    const accounts = JSON.parse(localStorage.getItem("wa_accounts") || "[]");
+    const a = accounts[0];
+    if (a && a.token && a.phone_number_id && a.waba_id) {
+      return {
+        "x-wa-token":    (a.token           || "").trim(),
+        "x-wa-phone-id": (a.phone_number_id || "").trim(),
+        "x-wa-waba-id":  (a.waba_id         || "").trim(),
+      };
+    }
+  } catch {}
+  // Fallback: load from Vercel env vars via /api/wa-config
+  try {
+    const r = await fetch("/api/wa-config");
+    const d = await r.json();
+    if (d.configured) {
+      // Cache into localStorage so subsequent calls are instant
+      const account = {
+        id: "env",
+        token:           d.token,
+        phone_number_id: d.phone_number_id,
+        waba_id:         d.waba_id,
+        display_name:    "From Vercel Env",
+        connected_at:    new Date().toISOString(),
+      };
+      localStorage.setItem("wa_accounts", JSON.stringify([account]));
+      return {
+        "x-wa-token":    d.token,
+        "x-wa-phone-id": d.phone_number_id,
+        "x-wa-waba-id":  d.waba_id,
+      };
+    }
+  } catch {}
+  return {};
+}
+
+// Sync version for places that can't await — reads localStorage only
 function getWAHeaders() {
   try {
     const accounts = JSON.parse(localStorage.getItem("wa_accounts") || "[]");
     const a = accounts[0];
     if (!a) return {};
     return {
-      "x-wa-token": (a.token || "").trim(),
+      "x-wa-token":    (a.token           || "").trim(),
       "x-wa-phone-id": (a.phone_number_id || "").trim(),
-      "x-wa-waba-id": (a.waba_id || "").trim(),
+      "x-wa-waba-id":  (a.waba_id         || "").trim(),
     };
   } catch { return {}; }
 }
@@ -277,7 +318,25 @@ function WAAccount() {
 
   useEffect(() => {
     const stored = localStorage.getItem("wa_accounts");
-    if (stored) setAccounts(JSON.parse(stored));
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.length > 0) { setAccounts(parsed); return; }
+    }
+    // Auto-load from Vercel env vars if localStorage is empty
+    fetch("/api/wa-config").then(r => r.json()).then(d => {
+      if (d.configured) {
+        const account = {
+          id: "env",
+          token:           d.token,
+          phone_number_id: d.phone_number_id,
+          waba_id:         d.waba_id,
+          display_name:    "From Vercel Env",
+          connected_at:    new Date().toISOString(),
+        };
+        localStorage.setItem("wa_accounts", JSON.stringify([account]));
+        setAccounts([account]);
+      }
+    }).catch(() => {});
   }, []);
 
   const save = () => {
