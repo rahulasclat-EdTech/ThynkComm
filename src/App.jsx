@@ -1420,9 +1420,15 @@ function MessageLog() {
 // ─── MESSAGE TEMPLATE ────────────────────────────────────────────
 function MessageTemplate() {
   const STORAGE_KEY = "msg_templates";
+  const fixVars = (text) => (text || "").replace(/\[(?:Variable|Var)\s*(\d+)\]/gi, "{{$1}}");
   const [templates, setTemplates] = useState(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    // Auto-fix any corrupted [Variable N] → {{N}} on load
+    const cleaned = parsed.map(t => ({ ...t, body: fixVars(t.body), header: fixVars(t.header) }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+    return cleaned;
   });
   const [showAdd, setShowAdd]       = useState(false);
   const [editId, setEditId]         = useState(null);
@@ -1588,6 +1594,7 @@ function MessageTemplate() {
         category:   (t.category || "UTILITY").toUpperCase(),
         components,
       };
+      console.log("📤 Sending to Meta:", JSON.stringify(payload, null, 2));
 
       const res  = await fetch(
         "/api/submit-template",
