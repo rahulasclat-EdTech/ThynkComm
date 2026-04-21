@@ -10,13 +10,10 @@ const { createClient } = require("@supabase/supabase-js");
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
 // ── Phone number normaliser ───────────────────────────────────────────────────
-// Meta requires E.164 WITHOUT leading +: "919876543210" not "+919876543210"
 function normalisePhone(raw) {
   if (!raw) return null;
   let digits = String(raw).replace(/\D/g, "");
-  // Indian 10-digit number with no country code → prepend 91
   if (digits.length === 10 && digits[0] !== "0") digits = "91" + digits;
-  // Strip leading zero: 09876543210 → 9876543210 → 919876543210
   if (digits.length === 11 && digits[0] === "0") digits = "91" + digits.slice(1);
   if (digits.length < 10 || digits.length > 15) return null;
   return digits;
@@ -25,22 +22,6 @@ function normalisePhone(raw) {
 // ── Resolve API key credentials ───────────────────────────────────────────────
 async function resolveApiKeyCredentials(apiKey, apiSecret) {
   if (!apiKey || !apiSecret) return null;
-
-  // Option A (recommended): validate against Supabase api_keys table
-  // Uncomment once you have: CREATE TABLE api_keys (key text, secret text,
-  //   active bool, wa_token text, phone_id text, site_id text, name text)
-  //
-  // const { data } = await supabase.from("api_keys")
-  //   .select("*").eq("key", apiKey).eq("secret", apiSecret).eq("active", true).single();
-  // if (!data) return null;
-  // return {
-  //   token:   data.wa_token || process.env.WHATSAPP_TOKEN,
-  //   phoneId: data.phone_id || process.env.PHONE_NUMBER_ID,
-  //   siteId:  data.site_id  || null,
-  //   keyName: data.name     || apiKey.slice(0, 12),
-  // };
-
-  // Option B (default): key+secret present → use env var creds
   const token   = (process.env.WHATSAPP_TOKEN  || "").trim();
   const phoneId = (process.env.PHONE_NUMBER_ID || "").trim();
   if (!token || !phoneId) return null;
@@ -62,6 +43,8 @@ function resolveMetaErrorHint(code, message) {
     return "Wrong PHONE_NUMBER_ID. Find the correct one in Meta Developer Console → WhatsApp → API Setup.";
   if (code === 131048 || msg.includes("spam") || msg.includes("quality"))
     return "Phone number quality flagged. Check Meta Business Manager → Phone Numbers → Quality Rating.";
+  if (code === 132000 || msg.includes("number of parameters") || msg.includes("localizable_params"))
+    return "Template parameter count mismatch. The number of values in 'components[].parameters' must exactly match the number of {{1}},{{2}},… placeholders in your approved Meta template body.";
   if (msg.includes("permission") || code === 200)
     return "Token missing whatsapp_business_messaging permission. Re-generate token with correct permissions.";
   return "Check Meta Developer Console for full error details: developers.facebook.com";
@@ -79,7 +62,8 @@ module.exports = async function handler(req, res) {
   if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
 
-  const { to, message, template_name, language_code } = req.body || {};
+  // ── FIX: also accept template_params (array of string values for {{1}},{{2}}…)
+  const { to, message, template_name, language_code, template_params } = req.body || {};
 
   // ── Validate & normalise phone number ─────────────────────────────────────
   const toNorm = normalisePhone(to);
@@ -130,20 +114,44 @@ module.exports = async function handler(req, res) {
   }
 
   // ── Build Meta payload ────────────────────────────────────────────────────
-  const metaPayload = template_name
-    ? {
-        messaging_product: "whatsapp",
-        to: toNorm,
-        type: "template",
-        template: { name: template_name, language: { code: language_code || "en_US" } },
-      }
-    : {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: toNorm,
-        type: "text",
-        text: { preview_url: false, body: message },
-      };
+  let metaPayload;
+
+  if (template_name) {
+    // Build components array from template_params if provided.
+    // template_params: string[] — values for {{1}}, {{2}}, {{3}}, … in order.
+    // e.g. ["Rahul Shrivastav", "N R School", "Thynk Success 2025", "8800903318"]
+    const components = [];
+    if (Array.isArray(template_params) && template_params.length > 0) {
+      components.push({
+        type: "body",
+        parameters: template_params.map(val => ({
+          type: "text",
+          text: String(val),
+        })),
+      });
+    }
+
+    metaPayload = {
+      messaging_product: "whatsapp",
+      to: toNorm,
+      type: "template",
+      template: {
+        name: template_name,
+        language: { code: language_code || "en_US" },
+        // Only include components if we have params — avoids 132000 error
+        // when template has no variables
+        ...(components.length > 0 ? { components } : {}),
+      },
+    };
+  } else {
+    metaPayload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: toNorm,
+      type: "text",
+      text: { preview_url: false, body: message },
+    };
+  }
 
   // ── Call Meta Graph API ───────────────────────────────────────────────────
   let metaResponse, metaData;
@@ -175,12 +183,9 @@ module.exports = async function handler(req, res) {
   }
 
   // ── Meta accepted the message ─────────────────────────────────────────────
-  // IMPORTANT: "accepted" ≠ "delivered".
-  // Delivery status arrives via webhook (sent → delivered → read, or failed).
   const messageId = metaData.messages?.[0]?.id || null;
   const waId      = metaData.contacts?.[0]?.wa_id || toNorm;
 
-  // Log to Supabase — status will be updated to delivered/read/failed by webhook
   try {
     await supabase.from("messages").insert([{
       to_number:     toNorm,
@@ -194,7 +199,6 @@ module.exports = async function handler(req, res) {
     }]);
   } catch (dbErr) {
     console.error("Supabase insert error:", dbErr.message);
-    // Non-fatal — don't reject the response
   }
 
   return res.status(200).json({
