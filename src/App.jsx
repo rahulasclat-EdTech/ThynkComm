@@ -1498,18 +1498,19 @@ function MessageTemplate() {
       };
 
       const res  = await fetch(
-        `https://graph.facebook.com/v19.0/${wabaId}/message_templates`,
+        "/api/submit-template",
         {
           method:  "POST",
-          headers: { Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+          headers: { "Content-Type":"application/json", ...getWAHeaders() },
           body:    JSON.stringify(payload),
         }
       );
       const data = await res.json();
 
       if (!res.ok) {
-        const errMsg = data?.error?.message || "Submission failed";
-        alert(`❌ Meta rejected submission: ${errMsg}`);
+        const errMsg = data?.error || "Submission failed";
+        const code   = data?.code   ? ` (code ${data.code})`  : "";
+        alert(`❌ Meta rejected submission: ${errMsg}${code}`);
         return;
       }
 
