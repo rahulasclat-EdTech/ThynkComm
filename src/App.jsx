@@ -5399,7 +5399,7 @@ export default function App() {
         )}
       </div>
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-        <div style={{ padding:"14px 24px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", background:`${C.sidebar}ee`, backdropFilter:"blur(12px)", flexShrink:0, borderBottom:`1px solid ${C.border}` }}>
+        <div style={{ padding:"14px 24px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", background:`${C.sidebar}ee`, backdropFilter:"blur(12px)", flexShrink:0 }}>
           <div>
             {NAV.flatMap(g=>g.items).filter(i=>i.id===activePage).map(i=>(
               <div key={i.id}>
