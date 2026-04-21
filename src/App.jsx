@@ -108,7 +108,6 @@ const pageBg = {
                radial-gradient(ellipse at 80% 80%, #4db8ff15 0%, transparent 50%),
                radial-gradient(ellipse at 50% 50%, #c77dff10 0%, transparent 60%),
                ${C.bg}`,
-  minHeight: "100%",
 };
 
 // ─── NAV ─────────────────────────────────────────────────────────
@@ -1490,7 +1489,10 @@ function MessageTemplate() {
     setForm({ ...emptyForm, ...t, buttons: t.buttons || [] });
     setEditId(t.id);
     setShowAdd(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => {
+      const el = document.querySelector("[data-page-scroll]");
+      if (el) el.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
   };
 
   const addButton = () => {
@@ -1594,7 +1596,6 @@ function MessageTemplate() {
         category:   (t.category || "UTILITY").toUpperCase(),
         components,
       };
-      console.log("📤 Sending to Meta:", JSON.stringify(payload, null, 2));
 
       const res  = await fetch(
         "/api/submit-template",
@@ -2226,7 +2227,10 @@ function ListTemplate() {
     setForm({ ...t });
     setEditId(t.id);
     setShowAdd(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => {
+      const el = document.querySelector("[data-page-scroll]");
+      if (el) el.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
   };
 
   const addRow = (sIdx) => {
@@ -5429,6 +5433,10 @@ function UsersManager({ currentUser }) {
 // ─── APP ──────────────────────────────────────────────────────────
 export default function App() {
   const [activePage, setActivePage]             = useState("dashboard");
+  const navigateTo = (pageId) => {
+    setActivePage(pageId);
+    setTimeout(() => { const el = document.querySelector("[data-page-scroll]"); if (el) el.scrollTop = 0; }, 0);
+  };
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentUser, setCurrentUser]           = useState(() => getSession());
 
@@ -5453,7 +5461,7 @@ export default function App() {
         </div>
         {!sidebarCollapsed && (
           <div style={{ padding:"12px 12px 0" }}>
-            <button onClick={()=>setActivePage("wa-account")} style={{ ...btn(), width:"100%", fontSize:13, padding:"10px" }}>+ Add account</button>
+            <button onClick={()=>navigateTo("wa-account")} style={{ ...btn(), width:"100%", fontSize:13, padding:"10px" }}>+ Add account</button>
           </div>
         )}
         <nav style={{ flex:1, padding:"10px 8px", overflowY:"auto", overflowX:"hidden" }}>
@@ -5465,7 +5473,7 @@ export default function App() {
               {group.items.map(item=>{
                 const active = activePage===item.id;
                 return (
-                  <button key={item.id} onClick={()=>setActivePage(item.id)} title={sidebarCollapsed?item.label:""} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 10px", borderRadius:9, border:"none", cursor:"pointer", background:active?"#1ab8a820":"transparent", color:active?C.accent:C.sub, fontWeight:active?700:400, fontSize:13, width:"100%", textAlign:"left", transition:"all 0.12s", marginBottom:2, whiteSpace:"nowrap", overflow:"hidden" }}>
+                  <button key={item.id} onClick={()=>navigateTo(item.id)} title={sidebarCollapsed?item.label:""} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 10px", borderRadius:9, border:"none", cursor:"pointer", background:active?"#1ab8a820":"transparent", color:active?C.accent:C.sub, fontWeight:active?700:400, fontSize:13, width:"100%", textAlign:"left", transition:"all 0.12s", marginBottom:2, whiteSpace:"nowrap", overflow:"hidden" }}>
                     <span style={{ fontSize:16, flexShrink:0 }}>{item.icon}</span>
                     {!sidebarCollapsed && (
                       <div style={{ flex:1, overflow:"hidden" }}>
@@ -5523,7 +5531,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div style={{ flex:1, overflow:"auto", padding:24, ...pageBg }}>
+        <div data-page-scroll="" style={{ flex:1, overflow:"auto", padding:24, paddingBottom:48, ...pageBg }}>
           <PageContent page={activePage} />
         </div>
       </div>
