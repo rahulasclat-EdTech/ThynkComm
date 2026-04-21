@@ -1533,9 +1533,38 @@ function MessageTemplate() {
     }
     setSubmitting(t.id);
     try {
+      // Convert [Var 1] style back to {{1}} if user typed it that way
+      const normalizeVars = (text) => {
+        if (!text) return text;
+        // [Var 1] → {{1}}, [Var 2] → {{2}} etc.
+        return text.replace(/\[Var\s*(\d+)\]/gi, "{{$1}}");
+      };
+
+      // Extract {{1}}, {{2}} etc. from text and build example array
+      const extractExamples = (text) => {
+        if (!text) return [];
+        const matches = [...new Set((text.match(/\{\{(\d+)\}\}/g) || []))];
+        matches.sort((a,b) => parseInt(a.match(/\d+/)) - parseInt(b.match(/\d+/)));
+        return matches.map((_, i) => `Sample${i+1}`);
+      };
+
+      const normalizedBody = normalizeVars(t.body);
+      const normalizedHeader = normalizeVars(t.header);
+      const bodyExamples = extractExamples(normalizedBody);
+      const headerExamples = extractExamples(normalizedHeader);
+
       const components = [];
-      if (t.header) components.push({ type: "HEADER", format: "TEXT", text: t.header });
-      components.push({ type: "BODY", text: t.body });
+
+      if (normalizedHeader) {
+        const headerComp = { type: "HEADER", format: "TEXT", text: normalizedHeader };
+        if (headerExamples.length > 0) headerComp.example = { header_text: headerExamples };
+        components.push(headerComp);
+      }
+
+      const bodyComp = { type: "BODY", text: normalizedBody };
+      if (bodyExamples.length > 0) bodyComp.example = { body_text: [bodyExamples] };
+      components.push(bodyComp);
+
       if (t.footer) components.push({ type: "FOOTER", text: t.footer });
       if ((t.buttons||[]).length > 0) {
         const bComp = {
@@ -1552,7 +1581,7 @@ function MessageTemplate() {
       const payload = {
         name:       t.name,
         language:   t.language || "en_US",
-        category:   (t.category || "MARKETING").toUpperCase(),
+        category:   (t.category || "UTILITY").toUpperCase(),
         components,
       };
 
