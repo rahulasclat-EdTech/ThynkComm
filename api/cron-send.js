@@ -10,21 +10,37 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
+// ── Phone number normaliser ───────────────────────────────────────────────────
+// FIX: cron-send was saving contact.phone raw, causing the same contact to
+//      appear as two separate conversations in Live Chat when the customer
+//      replied (because inbound from_number is always normalised by Meta).
+function normalisePhone(raw) {
+  if (!raw) return null;
+  let digits = String(raw).replace(/\D/g, "");
+  if (digits.length === 10 && digits[0] !== "0") digits = "91" + digits;
+  if (digits.length === 11 && digits[0] === "0") digits = "91" + digits.slice(1);
+  if (digits.length < 10 || digits.length > 15) return String(raw);
+  return digits;
+}
+
 async function sendCampaign(scheduled, contacts) {
   let sent = 0, failed = 0;
 
   for (const contact of contacts) {
     try {
+      // FIX: normalise phone before sending and storing.
+      const toNorm = normalisePhone(contact.phone) || contact.phone;
+
       const payload = scheduled.template_name
         ? {
             messaging_product: "whatsapp",
-            to: contact.phone,
+            to: toNorm,
             type: "template",
             template: { name: scheduled.template_name, language: { code: scheduled.language_code || "en_US" } },
           }
         : {
             messaging_product: "whatsapp",
-            to: contact.phone,
+            to: toNorm,
             type: "text",
             text: { body: scheduled.message },
           };
@@ -43,12 +59,18 @@ async function sendCampaign(scheduled, contacts) {
 
       const rData = await r.json();
 
+      // FIX: save normalised phone + contact_name + source so Live Chat
+      //      threads merge correctly with inbound replies.
       await supabase.from("messages").insert([{
-        to_number: contact.phone,
-        body: scheduled.message || scheduled.template_name,
-        status: r.ok ? "sent" : "failed",
-        direction: "outbound",
+        to_number:     toNorm,
+        contact_name:  contact.name  || null,
+        body:          scheduled.message || `[template: ${scheduled.template_name}]`,
+        template_name: scheduled.template_name || null,
+        status:        r.ok ? "sent" : "failed",
+        direction:     "outbound",
+        source:        "portal",
         wa_message_id: rData.messages?.[0]?.id,
+        campaign_id:   scheduled.campaign_id || null,
       }]);
 
       r.ok ? sent++ : failed++;
@@ -131,7 +153,7 @@ module.exports = async function handler(req, res) {
       }
 
       // Send messages
-      const { sent, failed } = await sendCampaign(scheduled, contacts);
+      const { sent, failed } = await sendCampaign({ ...scheduled, campaign_id: campaign.id }, contacts);
 
       // Update campaign record
       await supabase
