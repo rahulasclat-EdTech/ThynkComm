@@ -1128,7 +1128,7 @@ function CreateCampaign() {
 
   const currentGroup = groups.find(g => g.id === selectedGroup);
   const groupContacts = selectedGroup && currentGroup
-    ? contacts.filter(c => (currentGroup.contactIds||[]).includes(c.id) && c.opt_in)
+   contacts.filter(c => (currentGroup.contactIds||[]).includes(c.id) && c.opt_in)
     : contacts.filter(c => c.opt_in);
 
   const send = async () => {
@@ -1139,8 +1139,9 @@ function CreateCampaign() {
     if (!groupContacts.length) return alert("No opted-in contacts in this group");
     setStatus("sending");
     try {
-      const r = await fetch("/api/campaigns", {
-        method:"POST", headers:{"Content-Type":"application/json", ...getWAHeaders()},
+     const waHeaders = await getWAHeadersAsync();
+     const r = await fetch("/api/campaigns", {
+     method:"POST", headers:{"Content-Type":"application/json", ...waHeaders},
         body: JSON.stringify({
           name: campaignName,
           contacts: groupContacts.map(c => ({ id: c.id, phone: c.phone, name: c.name })),
