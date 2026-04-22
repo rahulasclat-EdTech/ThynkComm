@@ -1128,8 +1128,8 @@ function CreateCampaign() {
 
   const currentGroup = groups.find(g => g.id === selectedGroup);
   const groupContacts = selectedGroup && currentGroup
-    ? contacts.filter(c => (currentGroup.contactIds||[]).includes(c.id))
-    : contacts;
+    ? contacts.filter(c => (currentGroup.contactIds||[]).includes(c.id) && c.opt_in !== false)
+    : contacts.filter(c => c.opt_in !== false);
 
   const send = async () => {
     if (!campaignName) return alert("Campaign name is required");
@@ -1137,6 +1137,7 @@ function CreateCampaign() {
     if (msgType === "text" && !message) return alert("Message is required");
     if (msgType === "template" && !templateName) return alert("Template name is required");
     if (!groupContacts.length) return alert("No opted-in contacts in this group");
+    if (scheduleType === "scheduled" && (!scheduleDate || !scheduleTime)) return alert("Please select a date and time to schedule");
     setStatus("sending");
     try {
       const waHeaders = await getWAHeadersAsync();
@@ -1145,19 +1146,42 @@ function CreateCampaign() {
         setResult({ errorDetail: "WhatsApp credentials not configured. Go to WhatsApp Account page and connect your account first." });
         return;
       }
-      const r = await fetch("/api/campaigns", {
-        method:"POST", headers:{"Content-Type":"application/json", ...waHeaders},
-        body: JSON.stringify({
-          name: campaignName,
-          contacts: groupContacts.map(c => ({ id: c.id, phone: c.phone, name: c.name })),
-          message: msgType==="text" ? message : undefined,
-          template_name: msgType==="template" ? templateName : undefined,
-          language_code: templateLang || "en_US",
-        }),
-      });
-      const data = await r.json();
-      if (r.ok) { setStatus("success"); setResult(data); }
-      else { setStatus("error"); setResult({ errorDetail: data?.error || JSON.stringify(data) }); }
+
+      const contactsPayload = groupContacts.map(c => ({ id: c.id, phone: c.phone, name: c.name }));
+
+      if (scheduleType === "scheduled") {
+        // Schedule for later via scheduled_campaigns table
+        const scheduledAt = new Date(`${scheduleDate}T${scheduleTime}:00`).toISOString();
+        const r = await fetch("/api/campaigns/schedule", {
+          method:"POST", headers:{"Content-Type":"application/json", ...waHeaders},
+          body: JSON.stringify({
+            name: campaignName,
+            contacts: contactsPayload,
+            message: msgType==="text" ? message : undefined,
+            template_name: msgType==="template" ? templateName : undefined,
+            language_code: templateLang || "en_US",
+            scheduled_at: scheduledAt,
+          }),
+        });
+        const data = await r.json();
+        if (r.ok) { setStatus("success"); setResult({ ...data, scheduled: true }); }
+        else { setStatus("error"); setResult({ errorDetail: data?.error || JSON.stringify(data) }); }
+      } else {
+        // Send immediately
+        const r = await fetch("/api/campaigns", {
+          method:"POST", headers:{"Content-Type":"application/json", ...waHeaders},
+          body: JSON.stringify({
+            name: campaignName,
+            contacts: contactsPayload,
+            message: msgType==="text" ? message : undefined,
+            template_name: msgType==="template" ? templateName : undefined,
+            language_code: templateLang || "en_US",
+          }),
+        });
+        const data = await r.json();
+        if (r.ok) { setStatus("success"); setResult(data); }
+        else { setStatus("error"); setResult({ errorDetail: data?.error || JSON.stringify(data) }); }
+      }
     } catch (e) { setStatus("error"); setResult({ errorDetail: e.message }); }
   };
 
@@ -1178,7 +1202,7 @@ function CreateCampaign() {
         ))}
       </div>
       {step===1 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Campaign Name</h3><input value={campaignName} onChange={e=>setCampaignName(e.target.value)} style={inp} placeholder="e.g. Diwali Sale 2025" /><button style={{ ...btn(), marginTop:14 }} onClick={()=>{ if(!campaignName) return alert("Enter a campaign name"); setStep(2); }}>Continue →</button></div>)}
-      {step===2 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(<button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{msgType==="text"&&(<div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label><textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your message..." /><div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div></div>)}{msgType==="template"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>ℹ️ Meta-approved templates send immediately. Locally created templates also appear — ensure they are approved in Meta Business Manager for live sends.</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>{tplLoading ? (<div style={{ fontSize:12, color:C.sub, marginTop:8, padding:"10px 14px", background:C.bg, borderRadius:10 }}>⏳ Loading templates from Meta...</div>) : (<select value={templateName} onChange={e=>{ const t=templates.find(x=>x.name===e.target.value); setTemplateName(e.target.value); if(t) setTemplateLang(t.language||"en_US"); }} style={{ ...inp, marginTop:6 }}><option value="">— Select a template —</option>{templates.filter(t=>!t.isLocal).length>0&&(<optgroup label="✅ Meta Approved">{templates.filter(t=>!t.isLocal).map(t=>(<option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>))}</optgroup>)}{templates.filter(t=>t.isLocal).length>0&&(<optgroup label="📝 Locally Created">{templates.filter(t=>t.isLocal).map(t=>(<option key={t.name} value={t.name}>{t.name}</option>))}</optgroup>)}</select>)}{templateName && templates.find(t=>t.name===templateName) && (<div style={{ marginTop:8, padding:"10px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2, border:`1px solid ${C.accent}30` }}><strong>Preview:</strong> {templates.find(t=>t.name===templateName)?.preview || "No preview available"}</div>)}</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>LANGUAGE</label><select value={templateLang} onChange={e=>setTemplateLang(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="en_US">English (US)</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="ta">Tamil</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
+      {step===2 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Message Type</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["text","✏️ Custom Text"],["template","📋 Meta Template"]].map(([val,label])=>(<button key={val} onClick={()=>setMsgType(val)} style={{ ...btn(msgType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{msgType==="text"&&(<div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>MESSAGE TEXT *</label><textarea value={message} onChange={e=>setMessage(e.target.value)} style={{ ...inp, minHeight:140, resize:"vertical", marginTop:6 }} placeholder="Type your message..." /><div style={{ fontSize:11, color:C.sub, marginTop:5 }}>{message.length}/4096</div></div>)}{msgType==="template"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ padding:"12px 16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:12, color:"#92400e" }}>ℹ️ Meta-approved templates send immediately. Locally created templates also appear — ensure they are approved in Meta Business Manager for live sends.</div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT TEMPLATE *</label>{tplLoading ? (<div style={{ fontSize:12, color:C.sub, marginTop:8, padding:"10px 14px", background:C.bg, borderRadius:10 }}>⏳ Loading templates from Meta...</div>) : (<select value={templateName} onChange={e=>{ const t=templates.find(x=>x.name===e.target.value); setTemplateName(e.target.value); if(t) setTemplateLang(t.language||"en_US"); }} style={{ ...inp, marginTop:6 }}><option value="">— Select a template —</option>{templates.filter(t=>!t.isLocal).length>0&&(<optgroup label="✅ Meta Approved">{templates.filter(t=>!t.isLocal).map(t=>(<option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language}) — {t.category}</option>))}</optgroup>)}{templates.filter(t=>t.isLocal).length>0&&(<optgroup label="📝 Locally Created">{templates.filter(t=>t.isLocal).map(t=>(<option key={t.name} value={t.name}>{t.name}</option>))}</optgroup>)}</select>)}{templateName && templates.find(t=>t.name===templateName) && (<div style={{ marginTop:8, padding:"10px 14px", background:C.accentLight, borderRadius:10, fontSize:12, color:C.accent2, border:`1px solid ${C.accent}30` }}><strong>Preview:</strong> {templates.find(t=>t.name===templateName)?.preview || "No preview available"}</div>)}</div>{templateName && (<div style={{ fontSize:12, color:C.sub, marginTop:4 }}>🌐 Language: <strong style={{ color:C.text }}>{templateLang}</strong> <span style={{ color:C.sub }}>(auto-detected from template)</span></div>)}</div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
       {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:C.card, color:C.text }}><div style={{ fontWeight:700, color:C.text }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
       {step===4 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Schedule</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["now","⚡ Send Now"],["scheduled","📅 Schedule Later"]].map(([val,label])=>(<button key={val} onClick={()=>setScheduleType(val)} style={{ ...btn(scheduleType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{scheduleType==="scheduled"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DATE *</label><input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={e=>setScheduleDate(e.target.value)} style={{ ...inp, marginTop:6 }} /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIME *</label><input type="time" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} style={{ ...inp, marginTop:6 }} /></div></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIMEZONE</label><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="Asia/Kolkata">India (IST) UTC+5:30</option><option value="Asia/Dubai">Dubai (GST) UTC+4</option><option value="Europe/London">London (GMT) UTC+0</option><option value="America/New_York">New York (ET) UTC-5</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(3)}>← Back</button><button style={btn()} onClick={()=>setStep(5)}>Continue →</button></div></div>)}
       {step===5 && (<div style={card}><h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>Review & Send</h3><div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>{[["Campaign Name",campaignName],["Message Type",msgType==="template"?`Template: ${templateName}` : "Custom Text"],["Contact Group",currentGroup?.name||"—"],["Recipients",`${groupContacts.length} opted-in contacts`],["Schedule",scheduleType==="now"?"⚡ Send Now":`📅 ${scheduleDate} at ${scheduleTime}`]].map(([label,value])=>(<div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", background:C.bg, borderRadius:9 }}><span style={{ color:C.sub, fontSize:13 }}>{label}</span><span style={{ fontWeight:700, fontSize:13 }}>{value}</span></div>))}{msgType==="text"&&(<div style={{ padding:"10px 14px", background:C.bg, borderRadius:9 }}><div style={{ color:C.sub, fontSize:13, marginBottom:4 }}>Message Preview</div><div style={{ fontSize:13, whiteSpace:"pre-wrap" }}>{message}</div></div>)}</div>{status==="success"&&result&&(<div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontWeight:700, color:C.accent2, marginBottom:4 }}>✅ Campaign Sent!</div><div style={{ fontSize:13, color:C.sub }}>Sent: {result.sent} | Failed: {result.failed}</div></div>)}{status==="error"&&<ErrorBox msg={result?.errorDetail || "Something went wrong. Check API credentials."} />}<div style={{ display:"flex", gap:10 }}><button style={btn("secondary")} onClick={()=>setStep(4)}>← Back</button><button style={{ ...btn(), minWidth:180 }} onClick={send} disabled={status==="sending"}>{status==="sending"?"⏳ Sending...":"🚀 Launch Campaign"}</button></div></div>)}
