@@ -115,6 +115,7 @@ module.exports = async function handler(req, res) {
           };
         }
 
+        console.log(`[campaigns] Sending to ${toNorm}:`, JSON.stringify(payload));
         const r = await fetch(
           `https://graph.facebook.com/v25.0/${phoneId}/messages`,
           {
