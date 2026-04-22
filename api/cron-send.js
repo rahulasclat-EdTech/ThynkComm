@@ -46,7 +46,7 @@ async function sendCampaign(scheduled, contacts) {
           };
 
       const r = await fetch(
-        `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`,
+        `https://graph.facebook.com/v25.0/${process.env.PHONE_NUMBER_ID}/messages`,
         {
           method: "POST",
           headers: {
