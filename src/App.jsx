@@ -431,9 +431,12 @@ function Contacts() {
   const [activeGroup, setActiveGroup] = useState(null);
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
+  const [addContactTab, setAddContactTab]   = useState("single"); // "single" | "paste"
   const [groupName, setGroupName]     = useState("");
   const [search, setSearch]           = useState("");
   const [form, setForm]               = useState({ name:"", phone:"", email:"", tag:"Lead" });
+  const [pasteNumbers, setPasteNumbers] = useState("");
+  const [bulkResult, setBulkResult]   = useState(null); // { imported, skipped }
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState(null);
   const fileRef = useRef();
@@ -483,6 +486,34 @@ function Contacts() {
       setForm({ name:"", phone:"", email:"", tag:"Lead" });
       loadContacts();
     } else { const d = await r.json(); alert(d.error); }
+  };
+  const addBulkContacts = async () => {
+    const lines = pasteNumbers.split(/[\n,;]+/).map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return alert("Please paste at least one phone number.");
+    setSaving(true); setBulkResult(null);
+    let imported = 0; let skipped = 0; const newIds = [];
+    for (const raw of lines) {
+      // strip spaces, dashes, parentheses — keep digits and leading +
+      const phone = raw.replace(/[\s\-().]/g, "");
+      if (!phone) { skipped++; continue; }
+      const name = phone; // use phone as name when no name provided
+      const r = await fetch("/api/contacts", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ name, phone, email:"", tag:"Lead", group_id: activeGroup }),
+      });
+      if (r.ok) { const d = await r.json(); newIds.push(d.id); imported++; }
+      else skipped++;
+    }
+    if (activeGroup && newIds.length) {
+      const updated = groups.map(g => g.id === activeGroup
+        ? { ...g, contactIds: [...(g.contactIds||[]), ...newIds] }
+        : g);
+      saveGroups(updated);
+    }
+    loadContacts();
+    setSaving(false);
+    setBulkResult({ imported, skipped });
+    setPasteNumbers("");
   };
   const handleExcel = async (e) => {
     const file = e.target.files[0];
@@ -578,26 +609,71 @@ function Contacts() {
         <div style={{ marginLeft:"auto", display:"flex", gap:10 }}>
           <button style={{ ...btn("secondary"), fontSize:13 }} onClick={() => fileRef.current.click()}>📥 Import CSV</button>
           <input ref={fileRef} type="file" accept=".csv,.txt" style={{ display:"none" }} onChange={handleExcel} />
-          <button style={btn()} onClick={() => setShowAddContact(true)}>+ Add Contact</button>
+          <button style={btn()} onClick={() => { setShowAddContact(true); setAddContactTab("single"); setBulkResult(null); }}>+ Add Contact</button>
         </div>
       </div>
       {showAddContact && (
         <div style={{ ...card, marginBottom:16, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
-          <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>Add Contact to "{currentGroup?.name}"</h4>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-            <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>NAME *</label><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Full Name" /></div>
-            <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PHONE * (with country code)</label><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="919999999999" /></div>
-            <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>EMAIL</label><input value={form.email} onChange={e=>setForm({...form,email:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="email@example.com" /></div>
-            <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TAG</label>
-              <select value={form.tag} onChange={e=>setForm({...form,tag:e.target.value})} style={{ ...inp, marginTop:5 }}>
-                <option>Lead</option><option>Customer</option><option>VIP</option>
-              </select>
-            </div>
+          {/* Tab switcher */}
+          <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg, borderRadius:10, padding:3, width:"fit-content" }}>
+            {[["single","👤 Single Contact"],["paste","📋 Paste Numbers"]].map(([t,label])=>(
+              <button key={t} onClick={()=>{ setAddContactTab(t); setBulkResult(null); }}
+                style={{ padding:"7px 18px", borderRadius:8, border:"none", cursor:"pointer", fontSize:13, fontWeight:600,
+                  background: addContactTab===t ? C.accent : "transparent",
+                  color: addContactTab===t ? "white" : C.sub, transition:"all .15s" }}>
+                {label}
+              </button>
+            ))}
           </div>
-          <div style={{ display:"flex", gap:10, marginTop:14 }}>
-            <button style={btn()} onClick={addContact} disabled={saving}>{saving?"Saving...":"Save Contact"}</button>
-            <button style={btn("ghost")} onClick={()=>setShowAddContact(false)}>Cancel</button>
-          </div>
+
+          {addContactTab === "single" ? (
+            <>
+              <h4 style={{ margin:"0 0 14px", color:C.accent2 }}>Add Contact to "{currentGroup?.name}"</h4>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>NAME *</label><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="Full Name" /></div>
+                <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PHONE * (with country code)</label><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="919999999999" /></div>
+                <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>EMAIL</label><input value={form.email} onChange={e=>setForm({...form,email:e.target.value})} style={{ ...inp, marginTop:5 }} placeholder="email@example.com" /></div>
+                <div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TAG</label>
+                  <select value={form.tag} onChange={e=>setForm({...form,tag:e.target.value})} style={{ ...inp, marginTop:5 }}>
+                    <option>Lead</option><option>Customer</option><option>VIP</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:10, marginTop:14 }}>
+                <button style={btn()} onClick={addContact} disabled={saving}>{saving?"Saving...":"Save Contact"}</button>
+                <button style={btn("ghost")} onClick={()=>setShowAddContact(false)}>Cancel</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h4 style={{ margin:"0 0 6px", color:C.accent2 }}>Paste Phone Numbers</h4>
+              <p style={{ margin:"0 0 12px", fontSize:13, color:C.sub }}>
+                Paste one number per line (or separated by commas/semicolons). Country code required e.g. <strong>919876543210</strong>
+              </p>
+              <textarea
+                value={pasteNumbers}
+                onChange={e=>{ setPasteNumbers(e.target.value); setBulkResult(null); }}
+                style={{ ...inp, minHeight:140, resize:"vertical", fontFamily:"monospace", fontSize:13 }}
+                placeholder={"919876543210\n918765432109\n917654321098\n..."}
+              />
+              <div style={{ fontSize:12, color:C.sub, marginTop:4, marginBottom:12 }}>
+                {pasteNumbers.split(/[\n,;]+/).filter(l=>l.trim()).length} number{pasteNumbers.split(/[\n,;]+/).filter(l=>l.trim()).length!==1?"s":""} detected
+              </div>
+              {bulkResult && (
+                <div style={{ padding:"10px 14px", borderRadius:8, background: bulkResult.imported>0?"#f0fdf4":"#fef9c3",
+                  border:`1px solid ${bulkResult.imported>0?"#86efac":"#fde047"}`, fontSize:13, marginBottom:12,
+                  color: bulkResult.imported>0?"#166534":"#854d0e" }}>
+                  ✅ <strong>{bulkResult.imported}</strong> imported{bulkResult.skipped>0?`, ${bulkResult.skipped} skipped`:""}
+                </div>
+              )}
+              <div style={{ display:"flex", gap:10 }}>
+                <button style={btn()} onClick={addBulkContacts} disabled={saving||!pasteNumbers.trim()}>
+                  {saving?"Importing...":"Import Numbers"}
+                </button>
+                <button style={btn("ghost")} onClick={()=>{ setShowAddContact(false); setPasteNumbers(""); setBulkResult(null); }}>Cancel</button>
+              </div>
+            </>
+          )}
         </div>
       )}
       <div style={card}>
