@@ -1128,8 +1128,8 @@ function CreateCampaign() {
 
   const currentGroup = groups.find(g => g.id === selectedGroup);
   const groupContacts = selectedGroup && currentGroup
-   contacts.filter(c => (currentGroup.contactIds||[]).includes(c.id) && c.opt_in)
-    : contacts.filter(c => c.opt_in);
+    ? contacts.filter(c => (currentGroup.contactIds||[]).includes(c.id))
+    : contacts;
 
   const send = async () => {
     if (!campaignName) return alert("Campaign name is required");
@@ -1139,9 +1139,14 @@ function CreateCampaign() {
     if (!groupContacts.length) return alert("No opted-in contacts in this group");
     setStatus("sending");
     try {
-     const waHeaders = await getWAHeadersAsync();
-     const r = await fetch("/api/campaigns", {
-     method:"POST", headers:{"Content-Type":"application/json", ...waHeaders},
+      const waHeaders = await getWAHeadersAsync();
+      if (!waHeaders["x-wa-token"] || !waHeaders["x-wa-phone-id"]) {
+        setStatus("error");
+        setResult({ errorDetail: "WhatsApp credentials not configured. Go to WhatsApp Account page and connect your account first." });
+        return;
+      }
+      const r = await fetch("/api/campaigns", {
+        method:"POST", headers:{"Content-Type":"application/json", ...waHeaders},
         body: JSON.stringify({
           name: campaignName,
           contacts: groupContacts.map(c => ({ id: c.id, phone: c.phone, name: c.name })),
