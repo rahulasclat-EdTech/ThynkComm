@@ -25,7 +25,7 @@ module.exports = async function handler(req, res) {
 
   try {
     // Fetch up to 250 templates from Meta — paginate if needed
-    const url = `https://graph.facebook.com/v19.0/${wabaId}/message_templates?limit=250&fields=name,language,category,status,components`;
+    const url = `https://graph.facebook.com/v25.0/${wabaId}/message_templates?limit=250&fields=name,language,category,status,components`;
 
     const r = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
