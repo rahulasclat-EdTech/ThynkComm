@@ -116,7 +116,7 @@ module.exports = async function handler(req, res) {
         }
 
         const r = await fetch(
-          `https://graph.facebook.com/v19.0/${phoneId}/messages`,
+          `https://graph.facebook.com/v25.0/${phoneId}/messages`,
           {
             method:  "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -124,6 +124,11 @@ module.exports = async function handler(req, res) {
           }
         );
         const rData = await r.json();
+
+        if (!r.ok) {
+          const metaErr = rData?.error || {};
+          console.error(`[campaigns] Meta error for ${toNorm}:`, JSON.stringify(metaErr));
+        }
 
         // FIX: save normalised phone + contact_name + source so Live Chat
         //      threads merge correctly with inbound replies.
@@ -140,7 +145,8 @@ module.exports = async function handler(req, res) {
         }]);
 
         r.ok ? sent++ : failed++;
-      } catch {
+      } catch (err) {
+        console.error(`[campaigns] Exception for ${contact.phone}:`, err.message);
         failed++;
       }
     }
