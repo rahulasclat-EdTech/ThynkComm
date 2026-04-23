@@ -193,12 +193,17 @@ module.exports = async function handler(req, res) {
         }
 
         // Delivery / read status updates
-        for (const status of value.statuses || []) {
-          const { data: updatedMsg } = await supabase.from("messages")
-            .update({ status: status.status })
-            .eq("wa_message_id", status.id)
-            .select("campaign_id")
-            .maybeSingle();
+       for (const status of value.statuses || []) {
+  console.log(`[webhook] Status update: ${status.id} → ${status.status}`, JSON.stringify(status.errors || []));
+  const { data: updatedMsg } = await supabase.from("messages")
+    .update({ 
+      status: status.status,
+      error_code: status.errors?.[0]?.code ? String(status.errors[0].code) : null,
+      error_detail: status.errors?.[0]?.message || null,
+    })
+    .eq("wa_message_id", status.id)
+    .select("campaign_id")
+    .maybeSingle();
 
           // Increment campaign delivered count when a message is delivered
           if (status.status === "delivered" && updatedMsg?.campaign_id) {
