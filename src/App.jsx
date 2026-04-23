@@ -802,11 +802,13 @@ function CampaignSummary() {
     ["Read", camp.read || 0],
     [],
     ["CONTACT-WISE STATUS"],
-    ["#", "Phone Number", "Name", "Status", "Delivered?", "Read?", "WA Message ID", "Timestamp"],
+    // FIX: Added Last Updated + Failure Reason columns
+    ["#", "Phone Number", "Name", "Status", "Delivered?", "Read?", "WA Message ID", "Sent At", "Last Updated", "Failure Reason"],
   ];
 
   try {
-    const res = await fetch(`/api/live-chat?campaignId=${camp.id}`, { headers: getWAHeaders() });
+    // FIX: /api/live-chat has no campaignId handler — use the correct endpoint
+    const res = await fetch(`/api/campaigns?campaignId=${camp.id}`, { headers: getWAHeaders() });
     const msgs = await res.json();
     if (Array.isArray(msgs) && msgs.length > 0) {
       msgs.forEach((msg, i) => {
@@ -828,45 +830,13 @@ function CampaignSummary() {
           msg.status === "read" ? "Yes" : "No",
           msg.wa_message_id || "-",
           fmtDateTime(msg.created_at),
+          fmtDateTime(msg.updated_at || msg.created_at),
+          (msg.status === "failed") ? (msg.error_detail || "Unknown error") : "-",
         ]);
       });
     } else {
-      // No API messages — use contactIds stored in campaign or contacts from the group
-      const campaignContactIds = camp.contactIds || [];
-      const resolvedContacts = campaignContactIds.length > 0
-        ? campaignContactIds.map(id => contactMap[id]).filter(Boolean)
-        : [];
-
-      const sentCount = camp.sent || 0;
-      const deliveredCount = camp.delivered || 0;
-      const failedCount = camp.failed || 0;
-
-      if (resolvedContacts.length > 0) {
-        resolvedContacts.forEach((c, i) => {
-          const isDelivered = i < deliveredCount;
-          const isFailed = i >= (resolvedContacts.length - failedCount);
-          const status = isFailed ? "Failed" : isDelivered ? "Delivered" : "Sent";
-          rows.push([
-            i + 1,
-            c.phone || "-",
-            c.name || "-",
-            status,
-            isDelivered ? "Yes" : "No",
-            "No",
-            "-",
-            fmtDateTime(camp.created_at),
-          ]);
-        });
-      } else if (sentCount > 0) {
-        for (let i = 1; i <= sentCount; i++) {
-          const isDelivered = i <= deliveredCount;
-          const isFailed = i > (sentCount - failedCount);
-          const status = isFailed ? "Failed" : isDelivered ? "Delivered" : "Sent";
-          rows.push([i, "-", "-", status, isDelivered ? "Yes" : "No", "No", "-", fmtDateTime(camp.created_at)]);
-        }
-      } else {
-        rows.push(["—", "No contact-level data available", "", "", "", "", "", ""]);
-      }
+      // FIX: removed fake index-based status guessing — if no rows found, say so honestly
+      rows.push(["—", "No message records found for this campaign. Messages may not have been saved correctly.", "", "", "", "", "", "", "", ""]);
     }
   } catch (e) {
     rows.push(["Error", e.message, "", "", "", "", "", ""]);
@@ -877,7 +847,7 @@ function CampaignSummary() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `campaign_${camp.name.replace(/\s+/g,"_")}_detail.csv`;
+  a.download = `campaign_${camp.name.replace(/\s+/g,"_")}_delivery_report.csv`;
   a.click();
   URL.revokeObjectURL(url);
 };
