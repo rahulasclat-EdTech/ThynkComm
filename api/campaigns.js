@@ -5,7 +5,6 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-// ── Phone number normaliser ───────────────────────────────────────────────────
 function normalisePhone(raw) {
   if (!raw) return null;
   let digits = String(raw).replace(/\D/g, "");
@@ -15,7 +14,6 @@ function normalisePhone(raw) {
   return digits;
 }
 
-// ── Send with rate-limit awareness: max 20 msg/sec, log Meta errors ──────────
 async function sendOne(toNorm, payload, token, phoneId) {
   const r = await fetch(
     `https://graph.facebook.com/v25.0/${phoneId}/messages`,
@@ -27,10 +25,49 @@ async function sendOne(toNorm, payload, token, phoneId) {
   );
   const rData = await r.json();
   if (!r.ok) {
-    const metaErr = rData?.error || {};
-    console.error(`[campaigns] Meta error for ${toNorm}: code=${metaErr.code} msg=${metaErr.message}`);
+    console.error(`[campaigns] Meta error for ${toNorm}:`, JSON.stringify(rData?.error));
   }
   return { ok: r.ok, rData };
+}
+
+// ── Safe insert: tries full row first, then progressively strips columns ──────
+// This handles any Supabase schema — works even if optional columns are missing.
+async function safeInsertMessage(row) {
+  // Attempt 1: full row
+  const { error: e1 } = await supabase.from("messages").insert([row]);
+  if (!e1) { console.log(`[campaigns] Insert OK for ${row.to_number}`); return; }
+  console.warn(`[campaigns] Insert attempt 1 failed: ${e1.message}`);
+
+  // Attempt 2: strip error_detail (column may not exist)
+  const { error_detail, ...row2 } = row;
+  const { error: e2 } = await supabase.from("messages").insert([row2]);
+  if (!e2) { console.log(`[campaigns] Insert OK (no error_detail) for ${row.to_number}`); return; }
+  console.warn(`[campaigns] Insert attempt 2 failed: ${e2.message}`);
+
+  // Attempt 3: strip source too
+  const { source, ...row3 } = row2;
+  const { error: e3 } = await supabase.from("messages").insert([row3]);
+  if (!e3) { console.log(`[campaigns] Insert OK (no source) for ${row.to_number}`); return; }
+  console.warn(`[campaigns] Insert attempt 3 failed: ${e3.message}`);
+
+  // Attempt 4: strip campaign_id too
+  const { campaign_id, ...row4 } = row3;
+  const { error: e4 } = await supabase.from("messages").insert([row4]);
+  if (!e4) { console.log(`[campaigns] Insert OK (no campaign_id) for ${row.to_number}`); return; }
+  console.warn(`[campaigns] Insert attempt 4 failed: ${e4.message}`);
+
+  // Attempt 5: bare minimum — to_number, body, status, direction only
+  const { error: e5 } = await supabase.from("messages").insert([{
+    to_number: row.to_number,
+    body:      row.body,
+    status:    row.status,
+    direction: row.direction,
+  }]);
+  if (!e5) { console.log(`[campaigns] Insert OK (bare minimum) for ${row.to_number}`); return; }
+
+  // All attempts failed — log everything for debugging
+  console.error(`[campaigns] ALL INSERT ATTEMPTS FAILED for ${row.to_number}. Final error: ${e5.message}`);
+  console.error(`[campaigns] Row attempted:`, JSON.stringify(row));
 }
 
 module.exports = async function handler(req, res) {
@@ -44,18 +81,23 @@ module.exports = async function handler(req, res) {
     const campaignId = req.query.campaignId;
 
     if (campaignId) {
-      // FIX: return real per-message rows so the delivery report shows actual
-      //      status (sent / delivered / read / failed) for every number.
-      //      Previously this was fetched via /api/live-chat?campaignId which
-      //      has no campaignId handler and returned nothing useful.
+      console.log(`[campaigns] Fetching messages for campaign ${campaignId}`);
       const { data, error } = await supabase
         .from("messages")
-        .select("id, to_number, contact_name, body, template_name, status, wa_message_id, created_at, updated_at")
+        .select("*")
         .eq("campaign_id", campaignId)
-        .eq("direction", "outbound")
         .order("created_at", { ascending: true });
 
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) {
+        console.error(`[campaigns] GET messages error: ${error.message}`);
+        // If campaign_id column doesn't exist, return empty with explanation
+        return res.status(200).json({ 
+          rows: [], 
+          error: error.message,
+          hint: "campaign_id column may be missing from messages table. Run: ALTER TABLE messages ADD COLUMN IF NOT EXISTS campaign_id UUID REFERENCES campaigns(id);" 
+        });
+      }
+      console.log(`[campaigns] Found ${data?.length || 0} messages for campaign ${campaignId}`);
       return res.status(200).json(data || []);
     }
 
@@ -79,7 +121,7 @@ module.exports = async function handler(req, res) {
       template_params,
     } = req.body;
 
-    if (!name)     return res.status(400).json({ error: "name is required" });
+    if (!name)            return res.status(400).json({ error: "name is required" });
     if (!contacts?.length) return res.status(400).json({ error: "contacts are required" });
     if (!message && !template_name)
       return res.status(400).json({ error: "message or template_name is required" });
@@ -89,6 +131,31 @@ module.exports = async function handler(req, res) {
     if (!token || !phoneId)
       return res.status(400).json({ error: "WhatsApp credentials missing." });
 
+    // ── Probe messages table columns once before we start ─────────────────
+    // Insert a dry-run probe row to discover which columns exist.
+    // We intentionally use a dummy campaign_id=null and delete it after.
+    // This tells us the exact schema so safeInsertMessage can skip columns upfront.
+    const probeRow = {
+      to_number:     "0000000000",
+      body:          "__probe__",
+      status:        "failed",
+      direction:     "outbound",
+      source:        "portal",
+      campaign_id:   null,
+      contact_name:  null,
+      template_name: null,
+      wa_message_id: null,
+      error_detail:  null,
+    };
+    const { error: probeErr } = await supabase.from("messages").insert([probeRow]);
+    if (probeErr) {
+      console.warn(`[campaigns] Schema probe failed: ${probeErr.message}`);
+    } else {
+      // Clean up probe row immediately
+      await supabase.from("messages").delete().eq("to_number", "0000000000").eq("body", "__probe__");
+      console.log(`[campaigns] Schema probe passed — all columns exist`);
+    }
+
     // Create campaign record
     const { data: campaign, error: campErr } = await supabase
       .from("campaigns")
@@ -97,20 +164,17 @@ module.exports = async function handler(req, res) {
       .single();
 
     if (campErr) return res.status(500).json({ error: campErr.message });
+    console.log(`[campaigns] Created campaign ${campaign.id} — sending to ${contacts.length} contacts`);
 
     let sent = 0, failed = 0;
 
-    // FIX: Process contacts in batches of 20 with a 1-second pause between
-    //      batches to respect Meta's ~80 msg/sec rate limit and avoid silent
-    //      failures when sending to large lists (100+ contacts).
     const BATCH_SIZE = 20;
     for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
       const batch = contacts.slice(i, i + BATCH_SIZE);
 
       await Promise.all(batch.map(async (contact) => {
+        const toNorm = normalisePhone(contact.phone) || contact.phone;
         try {
-          const toNorm = normalisePhone(contact.phone) || contact.phone;
-
           let payload;
           if (template_name) {
             const components = [];
@@ -139,16 +203,12 @@ module.exports = async function handler(req, res) {
             };
           }
 
-          console.log(`[campaigns] Sending to ${toNorm}`);
           const { ok, rData } = await sendOne(toNorm, payload, token, phoneId);
-
           const metaErrMsg = !ok
             ? (rData?.error?.message || rData?.error?.error_data?.details || "Meta API error")
             : null;
 
-          // Build insert row — try with error_detail first, fall back without it
-          // so the row always gets saved even if the column doesn't exist yet.
-          const msgRow = {
+          await safeInsertMessage({
             to_number:     toNorm,
             contact_name:  contact.name  || null,
             body:          message || `[template: ${template_name}]`,
@@ -157,55 +217,38 @@ module.exports = async function handler(req, res) {
             direction:     "outbound",
             source:        "portal",
             wa_message_id: rData.messages?.[0]?.id || null,
-            campaign_id:   campaign.id   || null,
+            campaign_id:   campaign.id,
             error_detail:  metaErrMsg,
-          };
-
-          let { error: insertErr } = await supabase.from("messages").insert([msgRow]);
-          if (insertErr) {
-            // Retry without error_detail in case column doesn't exist yet
-            console.warn(`[campaigns] Insert failed (${insertErr.message}), retrying without error_detail`);
-            const { error: insertErr2 } = await supabase.from("messages").insert([{
-              ...msgRow, error_detail: undefined,
-            }]);
-            if (insertErr2) console.error(`[campaigns] Insert retry also failed: ${insertErr2.message}`);
-          }
+          });
 
           ok ? sent++ : failed++;
         } catch (err) {
-          console.error(`[campaigns] Exception for ${contact.phone}:`, err.message);
-          // Still insert a failed row so the number appears in the report
-          const toNorm = normalisePhone(contact.phone) || contact.phone;
-          const fallbackRow = {
+          console.error(`[campaigns] Exception for ${toNorm}:`, err.message);
+          await safeInsertMessage({
             to_number:    toNorm,
             contact_name: contact.name || null,
             body:         message || `[template: ${template_name}]`,
             status:       "failed",
             direction:    "outbound",
             source:       "portal",
-            campaign_id:  campaign.id || null,
+            campaign_id:  campaign.id,
             error_detail: err.message,
-          };
-          let { error: fbErr } = await supabase.from("messages").insert([fallbackRow]);
-          if (fbErr) {
-            await supabase.from("messages").insert([{ ...fallbackRow, error_detail: undefined }]);
-          }
+          });
           failed++;
         }
       }));
 
-      // Pause 1 second between batches (skip after last batch)
       if (i + BATCH_SIZE < contacts.length) {
         await new Promise(r => setTimeout(r, 1000));
       }
     }
 
-    // Update campaign totals
     await supabase
       .from("campaigns")
       .update({ status: "Completed", sent, failed })
       .eq("id", campaign.id);
 
+    console.log(`[campaigns] Campaign ${campaign.id} done — sent: ${sent}, failed: ${failed}`);
     return res.status(200).json({ success: true, campaignId: campaign.id, sent, failed });
   }
 

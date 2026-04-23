@@ -809,7 +809,13 @@ function CampaignSummary() {
   try {
     // FIX: /api/live-chat has no campaignId handler — use the correct endpoint
     const res = await fetch(`/api/campaigns?campaignId=${camp.id}`, { headers: getWAHeaders() });
-    const msgs = await res.json();
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const payload = await res.json();
+    // API returns array normally, or {rows:[], error, hint} if schema issue
+    const msgs = Array.isArray(payload) ? payload : (payload.rows || []);
+    if (!Array.isArray(payload) && payload.hint) {
+      rows.push(["⚠️ DB Schema Issue", payload.hint, "", "", "", "", "", "", "", ""]);
+    }
     if (Array.isArray(msgs) && msgs.length > 0) {
       msgs.forEach((msg, i) => {
         const phone = msg.to_number || msg.from_number || "-";
