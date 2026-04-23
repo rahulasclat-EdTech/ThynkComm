@@ -24,10 +24,20 @@ async function sendOne(toNorm, payload, token, phoneId) {
     }
   );
   const rData = await r.json();
-  if (!r.ok) {
-    console.error(`[campaigns] Meta error for ${toNorm}:`, JSON.stringify(rData?.error));
+
+  // FIX: Trust wa_message_id presence as the real success signal.
+  // Meta sometimes returns a non-2xx HTTP status (e.g. 400) but still
+  // includes messages[0].id in the body when the message was actually queued.
+  // Using r.ok alone marks these as "failed" even though they were delivered.
+  const hasMessageId = !!(rData?.messages?.[0]?.id);
+  const ok = r.ok || hasMessageId;
+
+  if (!r.ok && !hasMessageId) {
+    console.error(`[campaigns] Meta rejected ${toNorm}:`, JSON.stringify(rData?.error));
+  } else if (!r.ok && hasMessageId) {
+    console.warn(`[campaigns] Meta returned non-2xx but message queued for ${toNorm} — treating as sent`);
   }
-  return { ok: r.ok, rData };
+  return { ok, rData };
 }
 
 // ── Safe insert: tries full row first, then progressively strips columns ──────
@@ -82,21 +92,53 @@ module.exports = async function handler(req, res) {
 
     if (campaignId) {
       console.log(`[campaigns] Fetching messages for campaign ${campaignId}`);
+
+      // Primary: fetch by campaign_id
       const { data, error } = await supabase
         .from("messages")
         .select("*")
         .eq("campaign_id", campaignId)
+        .eq("direction", "outbound")
         .order("created_at", { ascending: true });
 
       if (error) {
         console.error(`[campaigns] GET messages error: ${error.message}`);
-        // If campaign_id column doesn't exist, return empty with explanation
         return res.status(200).json({ 
           rows: [], 
           error: error.message,
-          hint: "campaign_id column may be missing from messages table. Run: ALTER TABLE messages ADD COLUMN IF NOT EXISTS campaign_id UUID REFERENCES campaigns(id);" 
+          hint: "campaign_id column may be missing. Run in Supabase SQL editor: ALTER TABLE messages ADD COLUMN IF NOT EXISTS campaign_id TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS direction TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS source TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS contact_name TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS template_name TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_message_id TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS error_detail TEXT;"
         });
       }
+
+      // If no rows found by campaign_id, fall back to time-window match
+      // (handles rows saved by old code where campaign_id was null)
+      if (!data || data.length === 0) {
+        console.log(`[campaigns] No rows by campaign_id, trying time-window fallback`);
+        const { data: campData } = await supabase
+          .from("campaigns")
+          .select("created_at, updated_at, sent, total")
+          .eq("id", campaignId)
+          .single();
+
+        if (campData) {
+          const from = campData.created_at;
+          const to   = campData.updated_at || new Date(new Date(from).getTime() + 5 * 60000).toISOString();
+          const { data: fallback } = await supabase
+            .from("messages")
+            .select("*")
+            .eq("direction", "outbound")
+            .gte("created_at", from)
+            .lte("created_at", to)
+            .order("created_at", { ascending: true })
+            .limit(campData.total || 500);
+
+          if (fallback?.length > 0) {
+            console.log(`[campaigns] Time-window fallback found ${fallback.length} rows`);
+            return res.status(200).json(fallback);
+          }
+        }
+      }
+
       console.log(`[campaigns] Found ${data?.length || 0} messages for campaign ${campaignId}`);
       return res.status(200).json(data || []);
     }
@@ -217,7 +259,7 @@ module.exports = async function handler(req, res) {
             direction:     "outbound",
             source:        "portal",
             wa_message_id: rData.messages?.[0]?.id || null,
-            campaign_id:   campaign.id,
+            campaign_id:   String(campaign.id),  // cast to string — works for both UUID and integer PKs
             error_detail:  metaErrMsg,
           });
 
