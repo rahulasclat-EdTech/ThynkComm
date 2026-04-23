@@ -142,14 +142,13 @@ module.exports = async function handler(req, res) {
           console.log(`[campaigns] Sending to ${toNorm}`);
           const { ok, rData } = await sendOne(toNorm, payload, token, phoneId);
 
-          // FIX: Capture Meta error message in the DB row so the delivery
-          //      report can show WHY a message failed (invalid number, opt-out,
-          //      template not approved, rate-limit, etc.)
           const metaErrMsg = !ok
             ? (rData?.error?.message || rData?.error?.error_data?.details || "Meta API error")
             : null;
 
-          await supabase.from("messages").insert([{
+          // Build insert row — try with error_detail first, fall back without it
+          // so the row always gets saved even if the column doesn't exist yet.
+          const msgRow = {
             to_number:     toNorm,
             contact_name:  contact.name  || null,
             body:          message || `[template: ${template_name}]`,
@@ -159,16 +158,25 @@ module.exports = async function handler(req, res) {
             source:        "portal",
             wa_message_id: rData.messages?.[0]?.id || null,
             campaign_id:   campaign.id   || null,
-            // FIX: store error detail so report can show failure reason
             error_detail:  metaErrMsg,
-          }]);
+          };
+
+          let { error: insertErr } = await supabase.from("messages").insert([msgRow]);
+          if (insertErr) {
+            // Retry without error_detail in case column doesn't exist yet
+            console.warn(`[campaigns] Insert failed (${insertErr.message}), retrying without error_detail`);
+            const { error: insertErr2 } = await supabase.from("messages").insert([{
+              ...msgRow, error_detail: undefined,
+            }]);
+            if (insertErr2) console.error(`[campaigns] Insert retry also failed: ${insertErr2.message}`);
+          }
 
           ok ? sent++ : failed++;
         } catch (err) {
           console.error(`[campaigns] Exception for ${contact.phone}:`, err.message);
-          // FIX: still insert a failed row so the number appears in the report
+          // Still insert a failed row so the number appears in the report
           const toNorm = normalisePhone(contact.phone) || contact.phone;
-          await supabase.from("messages").insert([{
+          const fallbackRow = {
             to_number:    toNorm,
             contact_name: contact.name || null,
             body:         message || `[template: ${template_name}]`,
@@ -177,7 +185,11 @@ module.exports = async function handler(req, res) {
             source:       "portal",
             campaign_id:  campaign.id || null,
             error_detail: err.message,
-          }]);
+          };
+          let { error: fbErr } = await supabase.from("messages").insert([fallbackRow]);
+          if (fbErr) {
+            await supabase.from("messages").insert([{ ...fallbackRow, error_detail: undefined }]);
+          }
           failed++;
         }
       }));

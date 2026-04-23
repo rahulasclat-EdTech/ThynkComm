@@ -61,12 +61,11 @@ async function sendCampaign(scheduled, contacts) {
 
       // FIX: save normalised phone + contact_name + source so Live Chat
       //      threads merge correctly with inbound replies.
-      // FIX: capture Meta error detail so delivery report can show failure reason
       const metaErrMsg = !r.ok
         ? (rData?.error?.message || rData?.error?.error_data?.details || "Meta API error")
         : null;
 
-      await supabase.from("messages").insert([{
+      const msgRow = {
         to_number:     toNorm,
         contact_name:  contact.name  || null,
         body:          scheduled.message || `[template: ${scheduled.template_name}]`,
@@ -77,12 +76,15 @@ async function sendCampaign(scheduled, contacts) {
         wa_message_id: rData.messages?.[0]?.id,
         campaign_id:   scheduled.campaign_id || null,
         error_detail:  metaErrMsg,
-      }]);
+      };
+      let { error: insertErr } = await supabase.from("messages").insert([msgRow]);
+      if (insertErr) {
+        await supabase.from("messages").insert([{ ...msgRow, error_detail: undefined }]);
+      }
 
       r.ok ? sent++ : failed++;
     } catch (err) {
-      // FIX: insert a failed row so the number appears in the delivery report
-      await supabase.from("messages").insert([{
+      const fallbackRow = {
         to_number:    toNorm,
         contact_name: contact.name || null,
         body:         scheduled.message || `[template: ${scheduled.template_name}]`,
@@ -91,7 +93,11 @@ async function sendCampaign(scheduled, contacts) {
         source:       "portal",
         campaign_id:  scheduled.campaign_id || null,
         error_detail: err.message,
-      }]);
+      };
+      let { error: fbErr } = await supabase.from("messages").insert([fallbackRow]);
+      if (fbErr) {
+        await supabase.from("messages").insert([{ ...fallbackRow, error_detail: undefined }]);
+      }
       failed++;
     }
   }
