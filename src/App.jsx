@@ -685,7 +685,8 @@ function Contacts() {
       ) : (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
           {groups.map(g => {
-            const count = (g.contactIds||[]).length;
+            // Count only contacts that actually exist in DB (not deleted ones)
+            const count = (g.contactIds||[]).filter(id => contacts.some(c => c.id === id)).length;
             return (
               <div key={g.id} style={{ ...card, cursor:"pointer" }} onClick={() => setActiveGroup(g.id)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
@@ -772,33 +773,33 @@ function Contacts() {
                   <select value={selectedCC} onChange={e=>setSelectedCC(e.target.value)}
                     style={{ ...inp, marginTop:6, fontSize:13 }}>
                     {[
-                      ["91","🇮🇳 India (+91)"],["1","🇺🇸 USA / Canada (+1)"],["44","🇬🇧 UK (+44)"],
-                      ["61","🇦🇺 Australia (+61)"],["971","🇦🇪 UAE (+971)"],["966","🇸🇦 Saudi Arabia (+966)"],
-                      ["65","🇸🇬 Singapore (+65)"],["60","🇲🇾 Malaysia (+60)"],["92","🇵🇰 Pakistan (+92)"],
-                      ["880","🇧🇩 Bangladesh (+880)"],["94","🇱🇰 Sri Lanka (+94)"],["977","🇳🇵 Nepal (+977)"],
-                      ["95","🇲🇲 Myanmar (+95)"],["66","🇹🇭 Thailand (+66)"],["62","🇮🇩 Indonesia (+62)"],
-                      ["63","🇵🇭 Philippines (+63)"],["84","🇻🇳 Vietnam (+84)"],["86","🇨🇳 China (+86)"],
-                      ["81","🇯🇵 Japan (+81)"],["82","🇰🇷 South Korea (+82)"],["27","🇿🇦 South Africa (+27)"],
-                      ["234","🇳🇬 Nigeria (+234)"],["254","🇰🇪 Kenya (+254)"],["20","🇪🇬 Egypt (+20)"],
-                      ["212","🇲🇦 Morocco (+212)"],["49","🇩🇪 Germany (+49)"],["33","🇫🇷 France (+33)"],
-                      ["39","🇮🇹 Italy (+39)"],["34","🇪🇸 Spain (+34)"],["7","🇷🇺 Russia (+7)"],
-                      ["55","🇧🇷 Brazil (+55)"],["52","🇲🇽 Mexico (+52)"],["57","🇨🇴 Colombia (+57)"],
-                      ["54","🇦🇷 Argentina (+54)"],["56","🇨🇱 Chile (+56)"],["51","🇵🇪 Peru (+51)"],
-                      ["58","🇻🇪 Venezuela (+58)"],["593","🇪🇨 Ecuador (+593)"],["591","🇧🇴 Bolivia (+591)"],
-                      ["31","🇳🇱 Netherlands (+31)"],["32","🇧🇪 Belgium (+32)"],["41","🇨🇭 Switzerland (+41)"],
-                      ["43","🇦🇹 Austria (+43)"],["48","🇵🇱 Poland (+48)"],["46","🇸🇪 Sweden (+46)"],
-                      ["47","🇳🇴 Norway (+47)"],["45","🇩🇰 Denmark (+45)"],["358","🇫🇮 Finland (+358)"],
-                      ["351","🇵🇹 Portugal (+351)"],["30","🇬🇷 Greece (+30)"],["90","🇹🇷 Turkey (+90)"],
-                      ["380","🇺🇦 Ukraine (+380)"],["98","🇮🇷 Iran (+98)"],["964","🇮🇶 Iraq (+964)"],
-                      ["962","🇯🇴 Jordan (+962)"],["961","🇱🇧 Lebanon (+961)"],["970","🇵🇸 Palestine (+970)"],
-                      ["968","🇴🇲 Oman (+968)"],["974","🇶🇦 Qatar (+974)"],["973","🇧🇭 Bahrain (+973)"],
-                      ["965","🇰🇼 Kuwait (+965)"],["967","🇾🇪 Yemen (+967)"],["64","🇳🇿 New Zealand (+64)"],
+                      ["54","🇦🇷 Argentina (+54)"],["61","🇦🇺 Australia (+61)"],["43","🇦🇹 Austria (+43)"],
+                      ["973","🇧🇭 Bahrain (+973)"],["880","🇧🇩 Bangladesh (+880)"],["32","🇧🇪 Belgium (+32)"],
+                      ["591","🇧🇴 Bolivia (+591)"],["55","🇧🇷 Brazil (+55)"],["86","🇨🇳 China (+86)"],
+                      ["57","🇨🇴 Colombia (+57)"],["56","🇨🇱 Chile (+56)"],["45","🇩🇰 Denmark (+45)"],
+                      ["593","🇪🇨 Ecuador (+593)"],["20","🇪🇬 Egypt (+20)"],["358","🇫🇮 Finland (+358)"],
+                      ["33","🇫🇷 France (+33)"],["49","🇩🇪 Germany (+49)"],["30","🇬🇷 Greece (+30)"],
+                      ["91","🇮🇳 India (+91)"],["62","🇮🇩 Indonesia (+62)"],["98","🇮🇷 Iran (+98)"],
+                      ["964","🇮🇶 Iraq (+964)"],["39","🇮🇹 Italy (+39)"],["81","🇯🇵 Japan (+81)"],
+                      ["962","🇯🇴 Jordan (+962)"],["254","🇰🇪 Kenya (+254)"],["82","🇰🇷 South Korea (+82)"],
+                      ["965","🇰🇼 Kuwait (+965)"],["961","🇱🇧 Lebanon (+961)"],["60","🇲🇾 Malaysia (+60)"],
+                      ["52","🇲🇽 Mexico (+52)"],["212","🇲🇦 Morocco (+212)"],["95","🇲🇲 Myanmar (+95)"],
+                      ["31","🇳🇱 Netherlands (+31)"],["977","🇳🇵 Nepal (+977)"],["64","🇳🇿 New Zealand (+64)"],
+                      ["234","🇳🇬 Nigeria (+234)"],["47","🇳🇴 Norway (+47)"],["968","🇴🇲 Oman (+968)"],
+                      ["92","🇵🇰 Pakistan (+92)"],["970","🇵🇸 Palestine (+970)"],["51","🇵🇪 Peru (+51)"],
+                      ["63","🇵🇭 Philippines (+63)"],["48","🇵🇱 Poland (+48)"],["351","🇵🇹 Portugal (+351)"],
+                      ["974","🇶🇦 Qatar (+974)"],["7","🇷🇺 Russia (+7)"],["966","🇸🇦 Saudi Arabia (+966)"],
+                      ["65","🇸🇬 Singapore (+65)"],["27","🇿🇦 South Africa (+27)"],["34","🇪🇸 Spain (+34)"],
+                      ["94","🇱🇰 Sri Lanka (+94)"],["46","🇸🇪 Sweden (+46)"],["41","🇨🇭 Switzerland (+41)"],
+                      ["90","🇹🇷 Turkey (+90)"],["66","🇹🇭 Thailand (+66)"],["971","🇦🇪 UAE (+971)"],
+                      ["380","🇺🇦 Ukraine (+380)"],["44","🇬🇧 UK (+44)"],["1","🇺🇸 USA / Canada (+1)"],
+                      ["58","🇻🇪 Venezuela (+58)"],["84","🇻🇳 Vietnam (+84)"],["967","🇾🇪 Yemen (+967)"],
                     ].map(([code, label])=>(
                       <option key={code} value={code}>{label}</option>
                     ))}
                   </select>
                   <div style={{ fontSize:11, color:C.sub, marginTop:5 }}>
-                    Numbers without +{selectedCC} prefix will get it added automatically. 10-digit numbers get +{selectedCC} prepended.
+                    Country code +{selectedCC} will be added to the front of every number you paste.
                   </div>
                 </div>
               )}
@@ -1628,7 +1629,7 @@ function CreateCampaign() {
                     )}
                   </>);
                 })()}</div>{templateName && (<div style={{ fontSize:12, color:C.sub, marginTop:4 }}>🌐 Language: <strong style={{ color:C.text }}>{templateLang}</strong> <span style={{ color:C.sub }}>(auto-detected)</span></div>)}</div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
-      {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:C.card, color:C.text }}><div style={{ fontWeight:700, color:C.text }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
+      {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:C.card, color:C.text }}><div style={{ fontWeight:700, color:C.text }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).filter(id => contacts.some(c => c.id === id)).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
       {step===4 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Schedule</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["now","⚡ Send Now"],["scheduled","📅 Schedule Later"]].map(([val,label])=>(<button key={val} onClick={()=>setScheduleType(val)} style={{ ...btn(scheduleType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{scheduleType==="scheduled"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DATE *</label><input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={e=>setScheduleDate(e.target.value)} style={{ ...inp, marginTop:6 }} /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIME *</label><input type="time" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} style={{ ...inp, marginTop:6 }} /></div></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIMEZONE</label><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="Asia/Kolkata">India (IST) UTC+5:30</option><option value="Asia/Dubai">Dubai (GST) UTC+4</option><option value="Europe/London">London (GMT) UTC+0</option><option value="America/New_York">New York (ET) UTC-5</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(3)}>← Back</button><button style={btn()} onClick={()=>setStep(5)}>Continue →</button></div></div>)}
       {step===5 && (<div style={card}><h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>Review & Send</h3><div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>{[["Campaign Name",campaignName],["Message Type",msgType==="template"?`Template: ${templateName}` : "Custom Text"],["Contact Group",currentGroup?.name||"—"],["Recipients",`${groupContacts.length} opted-in contacts`],["Schedule",scheduleType==="now"?"⚡ Send Now":`📅 ${scheduleDate} at ${scheduleTime}`]].map(([label,value])=>(<div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", background:C.bg, borderRadius:9 }}><span style={{ color:C.sub, fontSize:13 }}>{label}</span><span style={{ fontWeight:700, fontSize:13 }}>{value}</span></div>))}{msgType==="text"&&(<div style={{ padding:"10px 14px", background:C.bg, borderRadius:9 }}><div style={{ color:C.sub, fontSize:13, marginBottom:4 }}>Message Preview</div><div style={{ fontSize:13, whiteSpace:"pre-wrap" }}>{message}</div></div>)}</div>{status==="success"&&result&&(<div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontWeight:700, color:C.accent2, marginBottom:4 }}>✅ Campaign Sent!</div><div style={{ fontSize:13, color:C.sub }}>Sent: {result.sent} | Failed: {result.failed}</div></div>)}{status==="error"&&<ErrorBox msg={result?.errorDetail || "Something went wrong. Check API credentials."} />}<div style={{ display:"flex", gap:10 }}><button style={btn("secondary")} onClick={()=>setStep(4)}>← Back</button><button style={{ ...btn(), minWidth:180 }} onClick={send} disabled={status==="sending"}>{status==="sending"?"⏳ Sending...":"🚀 Launch Campaign"}</button></div></div>)}
     </div>
@@ -1998,6 +1999,7 @@ function MessageTemplate() {
   const [syncTime, setSyncTime]     = useState(null);
   const [metaStatusMap, setMetaStatusMap] = useState({}); // name -> Meta status
   const [showPreFlight, setShowPreFlight] = useState(null); // template id for pre-flight modal
+  const [selectedTplId, setSelectedTplId] = useState(null); // selected in list view
 
   const emptyForm = {
     name: "", category: "MARKETING", language: "en_US", body: "",
@@ -2654,109 +2656,146 @@ function MessageTemplate() {
           <button style={btn()} onClick={()=>setShowAdd(true)}>+ Create First Template</button>
         </div>
       ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-          {templates.map(t => {
-            const metaSt  = metaStatusMap[t.name];
-            const curStatus = metaSt || t.status || "Draft";
-            const isApproved = curStatus.toUpperCase() === "APPROVED";
-            const isDraft    = ["draft","Draft"].includes(curStatus);
-            const isPending  = curStatus.toUpperCase() === "PENDING";
-            const isRejected = curStatus.toUpperCase() === "REJECTED";
-
-            return (
-              <div key={t.id} style={{ ...card, border: isApproved ? `1.5px solid ${C.accent}40` : isRejected ? `1.5px solid ${C.red}40` : `1px solid ${C.border}` }}>
-                {/* Card header */}
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:15, marginBottom:4, fontFamily:"monospace" }}>{t.name}</div>
-                    <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-                      <span style={pill("#4db8ff","#e8f4ff")}>{(t.category||"MARKETING")}</span>
-                      <span style={pill(C.sub,"#1e2a38")}>{t.language||"en_US"}</span>
-                      {statusBadge(curStatus)}
-                    </div>
-                  </div>
-                  <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"flex-end" }}>
-                    <button onClick={()=>startEdit(t)} style={{ ...btn("secondary"), padding:"5px 10px", fontSize:12 }}>✏️</button>
-                    <button onClick={()=>save(templates.filter(x=>x.id!==t.id))}
-                      style={{ ...btn("ghost"), color:C.red, padding:"5px 8px", fontSize:13 }}>🗑</button>
+        <div style={{ display:"flex", gap:14, height:"calc(100vh - 240px)", minHeight:400 }}>
+          {/* LEFT: Template list */}
+          <div style={{ width:280, flexShrink:0, ...card, padding:0, overflowY:"auto", display:"flex", flexDirection:"column" }}>
+            {templates.map(t => {
+              const metaSt = metaStatusMap[t.name];
+              const curStatus = metaSt || t.status || "Draft";
+              const isApproved = curStatus.toUpperCase() === "APPROVED";
+              const isRejected = curStatus.toUpperCase() === "REJECTED";
+              const isPending  = curStatus.toUpperCase() === "PENDING";
+              const isSelected = selectedTplId === t.id;
+              return (
+                <div key={t.id}
+                  onClick={()=>setSelectedTplId(t.id)}
+                  style={{ padding:"12px 14px", cursor:"pointer", borderBottom:`1px solid ${C.border}`,
+                    background: isSelected ? C.accentLight : "transparent",
+                    borderLeft: isSelected ? `3px solid ${C.accent}` : "3px solid transparent",
+                    transition:"all 0.12s" }}>
+                  <div style={{ fontWeight:700, fontSize:13, fontFamily:"monospace", marginBottom:4,
+                    color: isSelected ? C.accent2 : C.text,
+                    whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{t.name}</div>
+                  <div style={{ display:"flex", gap:5, alignItems:"center", flexWrap:"wrap" }}>
+                    <span style={{ fontSize:10, background:"#4db8ff18", color:"#4db8ff", padding:"2px 7px", borderRadius:4, fontWeight:600 }}>{t.category||"MARKETING"}</span>
+                    {isApproved && <span style={{ fontSize:10, background:`${C.accent}18`, color:C.accent, padding:"2px 7px", borderRadius:4, fontWeight:600 }}>✅ Approved</span>}
+                    {isPending  && <span style={{ fontSize:10, background:"#ffd16618", color:C.yellow, padding:"2px 7px", borderRadius:4, fontWeight:600 }}>⏳ Pending</span>}
+                    {isRejected && <span style={{ fontSize:10, background:`${C.red}18`, color:C.red, padding:"2px 7px", borderRadius:4, fontWeight:600 }}>❌ Rejected</span>}
+                    {(!isApproved&&!isPending&&!isRejected) && <span style={{ fontSize:10, background:"#ffffff10", color:C.sub, padding:"2px 7px", borderRadius:4, fontWeight:600 }}>📝 Draft</span>}
                   </div>
                 </div>
+              );
+            })}
+          </div>
 
-                {/* Mini preview */}
-                <div style={{ background:"#e5ddd5", borderRadius:10, padding:10, marginBottom:12 }}>
-                  <div style={{ background:"white", borderRadius:"0 8px 8px 8px", padding:"8px 12px",
-                                fontSize:12, maxWidth:"90%", boxShadow:"0 1px 2px rgba(0,0,0,0.08)" }}>
-                    {t.header && <div style={{ fontWeight:700, marginBottom:3 }}>{t.header}</div>}
-                    <div style={{ color:"#333", whiteSpace:"pre-wrap", lineHeight:1.5 }}>
-                      {(t.body||"").replace(/\{\{(\d+)\}\}/g,(_, n)=>`[Var ${n}]`)}
-                    </div>
-                    {t.footer && <div style={{ fontSize:10, color:"#888", marginTop:4, borderTop:"1px solid #eee", paddingTop:3 }}>{t.footer}</div>}
-                  </div>
-                  {(t.buttons||[]).filter(b=>b.text).map((b,i) => (
-                    <div key={i} style={{ background:"white", borderRadius:8, padding:"6px 12px",
-                      maxWidth:"90%", textAlign:"center", color:"#007aff", fontWeight:600,
-                      fontSize:11, marginTop:5, boxShadow:"0 1px 2px rgba(0,0,0,0.06)" }}>
-                      {b.type==="url"?"🔗":b.type==="phone"?"📞":"↩️"} {b.text}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Variables */}
-                {(t.body.match(/\{\{\d+\}\}/g)||[]).length > 0 && (
-                  <div style={{ fontSize:11, color:C.accent2, background:C.accentLight,
-                                borderRadius:7, padding:"5px 10px", marginBottom:10,
-                                border:`1px solid ${C.accent}25` }}>
-                    📌 Variables: {[...new Set(t.body.match(/\{\{\d+\}\}/g)||[])].join(", ")}
-                  </div>
-                )}
-
-                {/* Rejection reason if any */}
-                {isRejected && t.rejectReason && (
-                  <div style={{ fontSize:11, color:C.red, background:"#fff0f0",
-                                borderRadius:7, padding:"5px 10px", marginBottom:10,
-                                border:`1px solid ${C.red}25` }}>
-                    ❌ Rejected: {t.rejectReason}
-                  </div>
-                )}
-
-                {/* Submit / status action */}
-                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                  {(isDraft || isRejected) && (
-                    <button
-                      onClick={() => setShowPreFlight(t.id)}
-                      disabled={submitting === t.id}
-                      style={{
-                        ...btn(), fontSize:12, padding:"7px 14px",
-                        background: submitting===t.id ? C.sub : C.accent,
-                        flex:1,
-                      }}
-                    >
-                      {submitting === t.id ? "⏳ Submitting…" : "🚀 Submit for Approval"}
-                    </button>
-                  )}
-                  {isPending && (
-                    <div style={{ flex:1 }}>
-                      <button onClick={syncMetaStatuses} style={{ ...btn("secondary"), fontSize:12, padding:"7px 14px", width:"100%" }}>
-                        🔄 Check Approval Status
-                      </button>
-                      <div style={{ fontSize:10, color:C.yellow, marginTop:4, textAlign:"center" }}>
-                        Auto-checking every 60s · {t.metaId ? `Meta ID: ${t.metaId}` : "Submitted to Meta"}
-                      </div>
-                    </div>
-                  )}
-                  {isApproved && (
-                    <div style={{ flex:1, padding:"7px 12px", background:`${C.accent}15`,
-                                  borderRadius:8, border:`1px solid ${C.accent}30`,
-                                  display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ fontSize:16 }}>✅</span>
-                      <div>
-                        <div style={{ fontSize:12, color:C.accent, fontWeight:700 }}>Approved by Meta</div>
-                        <div style={{ fontSize:11, color:C.sub }}>Ready to use in campaigns</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+          {/* RIGHT: Template detail */}
+          <div style={{ flex:1, ...card, overflowY:"auto" }}>
+            {!selectedTplId ? (
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100%", color:C.sub }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>👈</div>
+                <div style={{ fontSize:14, fontWeight:600 }}>Select a template to view details</div>
               </div>
+            ) : (() => {
+              const t = templates.find(x => x.id === selectedTplId);
+              if (!t) return null;
+              const metaSt = metaStatusMap[t.name];
+              const curStatus = metaSt || t.status || "Draft";
+              const isApproved = curStatus.toUpperCase() === "APPROVED";
+              const isDraft    = ["draft","Draft"].includes(curStatus);
+              const isPending  = curStatus.toUpperCase() === "PENDING";
+              const isRejected = curStatus.toUpperCase() === "REJECTED";
+              return (
+                <div>
+                  {/* Header */}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+                    <div>
+                      <div style={{ fontWeight:800, fontSize:16, fontFamily:"monospace", marginBottom:6 }}>{t.name}</div>
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+                        <span style={pill("#4db8ff","#e8f4ff")}>{t.category||"MARKETING"}</span>
+                        <span style={pill(C.sub,"#1e2a38")}>{t.language||"en_US"}</span>
+                        {statusBadge(curStatus)}
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={()=>startEdit(t)} style={{ ...btn("secondary"), fontSize:12, padding:"7px 14px" }}>✏️ Edit</button>
+                      <button onClick={()=>{ save(templates.filter(x=>x.id!==t.id)); setSelectedTplId(null); }}
+                        style={{ ...btn("secondary"), fontSize:12, padding:"7px 14px", color:C.red }}>🗑️ Delete</button>
+                    </div>
+                  </div>
+
+                  {/* WhatsApp preview */}
+                  <div style={{ background:"#e5ddd5", borderRadius:12, padding:14, marginBottom:14 }}>
+                    <div style={{ fontSize:11, color:"#666", marginBottom:8, fontWeight:600 }}>📱 WhatsApp Preview</div>
+                    <div style={{ background:"white", borderRadius:"0 10px 10px 10px", padding:"10px 14px",
+                                  maxWidth:"85%", boxShadow:"0 1px 3px rgba(0,0,0,0.12)" }}>
+                      {t.header && <div style={{ fontWeight:700, marginBottom:5, fontSize:14 }}>{t.header}</div>}
+                      <div style={{ color:"#333", whiteSpace:"pre-wrap", lineHeight:1.6, fontSize:13 }}>
+                        {(t.body||"").replace(/\{\{(\d+)\}\}/g,(_, n)=>`[Var ${n}]`)}
+                      </div>
+                      {t.footer && <div style={{ fontSize:11, color:"#888", marginTop:6, borderTop:"1px solid #eee", paddingTop:5 }}>{t.footer}</div>}
+                    </div>
+                    {(t.buttons||[]).filter(b=>b.text).map((b,i)=>(
+                      <div key={i} style={{ background:"white", borderRadius:8, padding:"8px 14px",
+                        maxWidth:"85%", textAlign:"center", color:"#007aff", fontWeight:600,
+                        fontSize:12, marginTop:6, boxShadow:"0 1px 2px rgba(0,0,0,0.06)" }}>
+                        {b.type==="url"?"🔗":b.type==="phone"?"📞":"↩️"} {b.text}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Variables */}
+                  {(t.body.match(/\{\{\d+\}\}/g)||[]).length > 0 && (
+                    <div style={{ fontSize:12, color:C.accent2, background:C.accentLight,
+                                  borderRadius:8, padding:"8px 12px", marginBottom:12,
+                                  border:`1px solid ${C.accent}25` }}>
+                      📌 Variables: {[...new Set(t.body.match(/\{\{\d+\}\}/g)||[])].join(", ")}
+                    </div>
+                  )}
+
+                  {/* Rejection reason */}
+                  {isRejected && t.rejectReason && (
+                    <div style={{ fontSize:12, color:C.red, background:`${C.red}10`,
+                                  borderRadius:8, padding:"8px 12px", marginBottom:12,
+                                  border:`1px solid ${C.red}25` }}>
+                      ❌ Rejected: {t.rejectReason}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                    {(isDraft || isRejected) && (
+                      <button onClick={()=>setShowPreFlight(t.id)} disabled={submitting===t.id}
+                        style={{ ...btn(), fontSize:13, padding:"9px 20px" }}>
+                        {submitting===t.id ? "⏳ Submitting…" : "🚀 Submit for Approval"}
+                      </button>
+                    )}
+                    {isPending && (
+                      <div style={{ flex:1 }}>
+                        <button onClick={syncMetaStatuses} style={{ ...btn("secondary"), fontSize:12, padding:"8px 16px" }}>
+                          🔄 Check Approval Status
+                        </button>
+                        <div style={{ fontSize:11, color:C.yellow, marginTop:4 }}>
+                          Auto-checking every 60s · {t.metaId ? `Meta ID: ${t.metaId}` : "Submitted to Meta"}
+                        </div>
+                      </div>
+                    )}
+                    {isApproved && (
+                      <div style={{ padding:"10px 16px", background:`${C.accent}15`,
+                                    borderRadius:10, border:`1px solid ${C.accent}30`,
+                                    display:"flex", alignItems:"center", gap:10 }}>
+                        <span style={{ fontSize:20 }}>✅</span>
+                        <div>
+                          <div style={{ fontSize:13, color:C.accent, fontWeight:700 }}>Approved by Meta</div>
+                          <div style={{ fontSize:12, color:C.sub }}>Ready to use in campaigns</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
             );
           })}
         </div>
