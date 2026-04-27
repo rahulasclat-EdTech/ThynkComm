@@ -82,7 +82,7 @@ async function safeInsertMessage(row) {
 
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-wa-token, x-wa-phone-id, x-wa-waba-id");
   if (req.method === "OPTIONS") return res.status(200).end();
 
@@ -93,16 +93,22 @@ module.exports = async function handler(req, res) {
     if (campaignId) {
       console.log(`[campaigns] Fetching messages for campaign ${campaignId}`);
 
-      // Primary: fetch by campaign_id
+      // Primary: fetch by campaign_id (with OR for direction null — old rows may not have direction set)
       const { data, error } = await supabase
         .from("messages")
         .select("*")
         .eq("campaign_id", campaignId)
-        .eq("direction", "outbound")
+        .or("direction.eq.outbound,direction.is.null")
         .order("created_at", { ascending: true });
 
       if (error) {
         console.error(`[campaigns] GET messages error: ${error.message}`);
+        // columns missing — try bare query without campaign_id filter as last resort
+        const { data: bare } = await supabase
+          .from("messages")
+          .select("to_number, body, status, created_at")
+          .order("created_at", { ascending: false })
+          .limit(1);
         return res.status(200).json({ 
           rows: [], 
           error: error.message,
@@ -111,7 +117,7 @@ module.exports = async function handler(req, res) {
       }
 
       // If no rows found by campaign_id, fall back to time-window match
-      // (handles rows saved by old code where campaign_id was null)
+      // (handles rows saved by old code where campaign_id was null/not set)
       if (!data || data.length === 0) {
         console.log(`[campaigns] No rows by campaign_id, trying time-window fallback`);
         const { data: campData } = await supabase
@@ -122,11 +128,16 @@ module.exports = async function handler(req, res) {
 
         if (campData) {
           const from = campData.created_at;
-          const to   = campData.updated_at || new Date(new Date(from).getTime() + 5 * 60000).toISOString();
+          // Use a wider window: campaign duration + 10 min buffer
+          const to = campData.updated_at
+            ? new Date(new Date(campData.updated_at).getTime() + 10 * 60000).toISOString()
+            : new Date(new Date(from).getTime() + 30 * 60000).toISOString();
+
+          // Try with direction filter first
           const { data: fallback } = await supabase
             .from("messages")
             .select("*")
-            .eq("direction", "outbound")
+            .or("direction.eq.outbound,direction.is.null")
             .gte("created_at", from)
             .lte("created_at", to)
             .order("created_at", { ascending: true })
@@ -135,6 +146,20 @@ module.exports = async function handler(req, res) {
           if (fallback?.length > 0) {
             console.log(`[campaigns] Time-window fallback found ${fallback.length} rows`);
             return res.status(200).json(fallback);
+          }
+
+          // Last resort: no direction filter, pure time window
+          const { data: fallback2 } = await supabase
+            .from("messages")
+            .select("*")
+            .gte("created_at", from)
+            .lte("created_at", to)
+            .order("created_at", { ascending: true })
+            .limit(campData.total || 500);
+
+          if (fallback2?.length > 0) {
+            console.log(`[campaigns] Time-window fallback2 (no direction) found ${fallback2.length} rows`);
+            return res.status(200).json(fallback2);
           }
         }
       }
@@ -292,6 +317,51 @@ module.exports = async function handler(req, res) {
 
     console.log(`[campaigns] Campaign ${campaign.id} done — sent: ${sent}, failed: ${failed}`);
     return res.status(200).json({ success: true, campaignId: campaign.id, sent, failed });
+  }
+
+  // ── PATCH — backfill campaign_id on time-window matched messages ────────
+  if (req.method === "PATCH") {
+    const { campaignId } = req.body || {};
+    if (!campaignId) return res.status(400).json({ error: "campaignId required" });
+
+    // Get campaign time window
+    const { data: campData, error: campErr } = await supabase
+      .from("campaigns")
+      .select("created_at, updated_at, sent, total")
+      .eq("id", campaignId)
+      .single();
+
+    if (campErr || !campData) return res.status(404).json({ error: "Campaign not found" });
+
+    const from = campData.created_at;
+    const to = campData.updated_at
+      ? new Date(new Date(campData.updated_at).getTime() + 10 * 60000).toISOString()
+      : new Date(new Date(from).getTime() + 30 * 60000).toISOString();
+
+    // Find messages in window that have null campaign_id
+    const { data: msgs, error: fetchErr } = await supabase
+      .from("messages")
+      .select("id")
+      .is("campaign_id", null)
+      .gte("created_at", from)
+      .lte("created_at", to)
+      .limit(campData.total || 500);
+
+    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+    if (!msgs?.length) return res.status(200).json({ updated: 0, message: "No unlinked messages found in time window" });
+
+    const ids = msgs.map(m => m.id);
+
+    // Backfill campaign_id and direction on those rows
+    const { error: updateErr } = await supabase
+      .from("messages")
+      .update({ campaign_id: String(campaignId), direction: "outbound" })
+      .in("id", ids);
+
+    if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    console.log(`[campaigns] Backfilled campaign_id=${campaignId} on ${ids.length} messages`);
+    return res.status(200).json({ updated: ids.length, message: `Linked ${ids.length} messages to this campaign` });
   }
 
   res.status(405).end();

@@ -757,11 +757,13 @@ function Dashboard() {
 // ─── CAMPAIGN SUMMARY ─────────────────────────────────────────────
 // ─── DELIVERY REPORT MODAL ────────────────────────────────────────────────────
 function DeliveryReportModal({ camp, onClose }) {
-  const [msgs, setMsgs]       = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [search, setSearch]   = useState("");
+  const [msgs, setMsgs]             = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState(null);
+  const [search, setSearch]         = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [backfilling, setBackfilling]   = useState(false);
+  const [backfillDone, setBackfillDone] = useState(false);
 
   const fmtDT = (ts) => {
     if (!ts) return "—";
@@ -770,17 +772,44 @@ function DeliveryReportModal({ camp, onClose }) {
       + " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
   };
 
-  useEffect(() => {
+  const loadMsgs = () => {
+    setLoading(true); setError(null);
     fetch(`/api/campaigns?campaignId=${camp.id}`, { headers: getWAHeaders() })
       .then(r => r.json())
       .then(payload => {
         const rows = Array.isArray(payload) ? payload : (payload.rows || []);
-        if (!Array.isArray(payload) && payload.error) setError(payload.hint || payload.error);
+        if (!Array.isArray(payload) && payload.error && rows.length === 0) {
+          setError(payload.hint || payload.error);
+        }
         setMsgs(rows);
         setLoading(false);
       })
       .catch(e => { setError(e.message); setLoading(false); });
-  }, [camp.id]);
+  };
+
+  useEffect(() => { loadMsgs(); }, [camp.id]);
+
+  const doBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const r = await fetch("/api/campaigns", {
+        method: "PATCH",
+        headers: { ...getWAHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId: camp.id }),
+      });
+      const d = await r.json();
+      setBackfillDone(true);
+      if (d.updated > 0) {
+        // Reload messages now that campaign_id is backfilled
+        loadMsgs();
+      } else {
+        setError("No unlinked messages found in the campaign time window. Messages may not have been saved to the database.");
+      }
+    } catch(e) {
+      setError("Backfill failed: " + e.message);
+    }
+    setBackfilling(false);
+  };
 
   const statusCfg = {
     read:      { label:"Read",      color:"#a78bfa", bg:"#2d1f4e" },
@@ -883,8 +912,19 @@ function DeliveryReportModal({ camp, onClose }) {
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={10} style={{ padding:30, textAlign:"center", color:C.sub, fontSize:13 }}>
-                    {msgs.length === 0 ? "No message records found for this campaign." : "No results match your filter."}
+                  <tr><td colSpan={10} style={{ padding:30, textAlign:"center", fontSize:13 }}>
+                    {msgs.length === 0 ? (
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
+                        <div style={{ color:C.sub }}>No messages linked to this campaign yet.</div>
+                        <div style={{ color:C.sub, fontSize:12 }}>Messages sent before tracking was set up may not have <code>campaign_id</code> saved. Click below to auto-link them by send time.</div>
+                        <button onClick={doBackfill} disabled={backfilling || backfillDone}
+                          style={{ ...btn(), fontSize:13, padding:"8px 20px", marginTop:4 }}>
+                          {backfilling ? "⏳ Linking..." : backfillDone ? "✅ Done — reloading..." : "🔗 Link Messages to This Campaign"}
+                        </button>
+                      </div>
+                    ) : (
+                      <span style={{ color:C.sub }}>No results match your filter.</span>
+                    )}
                   </td></tr>
                 )}
                 {filtered.map((msg, i) => {
