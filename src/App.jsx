@@ -755,16 +755,187 @@ function Dashboard() {
 }
 
 // ─── CAMPAIGN SUMMARY ─────────────────────────────────────────────
+// ─── DELIVERY REPORT MODAL ────────────────────────────────────────────────────
+function DeliveryReportModal({ camp, onClose }) {
+  const [msgs, setMsgs]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [search, setSearch]   = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const fmtDT = (ts) => {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    return d.toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })
+      + " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
+  };
+
+  useEffect(() => {
+    fetch(`/api/campaigns?campaignId=${camp.id}`, { headers: getWAHeaders() })
+      .then(r => r.json())
+      .then(payload => {
+        const rows = Array.isArray(payload) ? payload : (payload.rows || []);
+        if (!Array.isArray(payload) && payload.error) setError(payload.hint || payload.error);
+        setMsgs(rows);
+        setLoading(false);
+      })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, [camp.id]);
+
+  const statusCfg = {
+    read:      { label:"Read",      color:"#a78bfa", bg:"#2d1f4e" },
+    delivered: { label:"Delivered", color:"#4db8ff", bg:"#0e2235" },
+    sent:      { label:"Sent",      color:"#22d3ee", bg:"#0e2830" },
+    failed:    { label:"Failed",    color:"#f87171", bg:"#2d1015" },
+  };
+
+  const filtered = msgs.filter(m => {
+    const matchStatus = statusFilter === "all" || m.status === statusFilter;
+    const q = search.toLowerCase();
+    const matchSearch = !q || (m.to_number||"").includes(q) || (m.contact_name||"").toLowerCase().includes(q);
+    return matchStatus && matchSearch;
+  });
+
+  const stats = {
+    total:     msgs.length,
+    sent:      msgs.filter(m => m.status === "sent").length,
+    delivered: msgs.filter(m => m.status === "delivered").length,
+    failed:    msgs.filter(m => m.status === "failed").length,
+    read:      msgs.filter(m => m.status === "read").length,
+  };
+
+  const downloadCSV = () => {
+    const headers = ["#","Phone Number","Name","Status","Delivered?","Read?","WA Message ID","Sent At","Last Updated","Failure Reason"];
+    const rows = msgs.map((msg, i) => {
+      const phone = msg.to_number || "-";
+      const name  = msg.contact_name || "-";
+      const statusLabel = statusCfg[msg.status]?.label || msg.status || "Unknown";
+      return [
+        i+1, phone, name, statusLabel,
+        (msg.status==="delivered"||msg.status==="read") ? "Yes" : "No",
+        msg.status==="read" ? "Yes" : "No",
+        msg.wa_message_id || "-",
+        fmtDT(msg.created_at),
+        fmtDT(msg.updated_at || msg.created_at),
+        msg.status==="failed" ? (msg.error_detail || "Unknown error") : "-",
+      ];
+    });
+    const hdr = [
+      ["CAMPAIGN DETAIL REPORT"],[], 
+      ["Campaign",camp.name],["Status",camp.status],
+      ["Start Time",fmtDT(camp.created_at)],["End Time",fmtDT(camp.updated_at||camp.created_at)],
+      [],["SUMMARY"],["Metric","Count"],
+      ["Total Contacts",stats.total],["Sent",stats.sent],["Delivered",stats.delivered],
+      ["Failed",stats.failed],["Read",stats.read],[],
+      ["CONTACT-WISE STATUS"],
+      headers,
+      ...rows,
+    ];
+    const csv = hdr.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    a.download = `campaign_${camp.name.replace(/\s+/g,"_")}_delivery_report.csv`;
+    a.click();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, width:"100%", maxWidth:900, maxHeight:"90vh", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <div style={{ padding:"16px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div>
+            <div style={{ fontWeight:800, fontSize:15 }}>📋 Delivery Report — {camp.name}</div>
+            <div style={{ fontSize:12, color:C.sub, marginTop:3 }}>{fmtDT(camp.created_at)} → {fmtDT(camp.updated_at||camp.created_at)}</div>
+          </div>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            <button onClick={downloadCSV} style={{ ...btn("secondary"), fontSize:12, padding:"7px 13px" }}>⬇️ Export CSV</button>
+            <button onClick={onClose} style={{ background:"transparent", border:"none", color:C.sub, fontSize:20, cursor:"pointer", lineHeight:1 }}>✕</button>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:10, padding:"12px 20px", borderBottom:`1px solid ${C.border}`, flexWrap:"wrap" }}>
+          {[
+            { label:"Total", val:stats.total, color:C.text },
+            { label:"Sent",      val:stats.sent,      color:statusCfg.sent.color      },
+            { label:"Delivered", val:stats.delivered, color:statusCfg.delivered.color },
+            { label:"Read",      val:stats.read,      color:statusCfg.read.color      },
+            { label:"Failed",    val:stats.failed,    color:statusCfg.failed.color    },
+          ].map(s => (
+            <button key={s.label}
+              onClick={() => setStatusFilter(s.label==="Total" ? "all" : s.label.toLowerCase())}
+              style={{ background: statusFilter===(s.label==="Total"?"all":s.label.toLowerCase()) ? C.hover : "transparent", border:`1px solid ${statusFilter===(s.label==="Total"?"all":s.label.toLowerCase()) ? s.color : C.border}`, borderRadius:8, padding:"6px 14px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", minWidth:70 }}>
+              <span style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.val}</span>
+              <span style={{ fontSize:11, color:C.sub }}>{s.label}</span>
+            </button>
+          ))}
+          <input placeholder="🔍 Search number/name..." value={search} onChange={e=>setSearch(e.target.value)}
+            style={{ ...inp, fontSize:12, padding:"6px 12px", marginLeft:"auto", width:200 }} />
+        </div>
+        <div style={{ overflowY:"auto", flex:1 }}>
+          {loading ? <div style={{ padding:40, textAlign:"center" }}><Loader /></div>
+          : error ? <div style={{ padding:20, color:C.red, fontSize:13 }}>⚠️ {error}</div>
+          : (
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead style={{ position:"sticky", top:0, background:C.card, zIndex:1 }}>
+                <tr>
+                  {["#","Phone Number","Name","Status","Delivered","Read","WA Msg ID","Sent At","Last Updated","Failure Reason"].map(h=>(
+                    <th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr><td colSpan={10} style={{ padding:30, textAlign:"center", color:C.sub, fontSize:13 }}>
+                    {msgs.length === 0 ? "No message records found for this campaign." : "No results match your filter."}
+                  </td></tr>
+                )}
+                {filtered.map((msg, i) => {
+                  const cfg = statusCfg[msg.status] || { label: msg.status||"Unknown", color:C.sub, bg:"transparent" };
+                  return (
+                    <tr key={msg.id||i} style={{ borderBottom:`1px solid ${C.border}` }}>
+                      <td style={{ padding:"10px 12px", fontSize:12, color:C.sub }}>{i+1}</td>
+                      <td style={{ padding:"10px 12px", fontSize:13, fontWeight:600 }}>{msg.to_number||"-"}</td>
+                      <td style={{ padding:"10px 12px", fontSize:13 }}>{msg.contact_name||"-"}</td>
+                      <td style={{ padding:"10px 12px" }}>
+                        <span style={{ background:cfg.bg, color:cfg.color, borderRadius:6, padding:"3px 10px", fontSize:12, fontWeight:700 }}>{cfg.label}</span>
+                      </td>
+                      <td style={{ padding:"10px 12px", fontSize:12, textAlign:"center", color:(msg.status==="delivered"||msg.status==="read")?C.accent:C.sub }}>
+                        {(msg.status==="delivered"||msg.status==="read") ? "✅" : "—"}
+                      </td>
+                      <td style={{ padding:"10px 12px", fontSize:12, textAlign:"center", color:msg.status==="read"?"#a78bfa":C.sub }}>
+                        {msg.status==="read" ? "👁️" : "—"}
+                      </td>
+                      <td style={{ padding:"10px 12px", fontSize:11, color:C.sub, fontFamily:"monospace" }}>{msg.wa_message_id ? msg.wa_message_id.slice(0,18)+"…" : "—"}</td>
+                      <td style={{ padding:"10px 12px", fontSize:11, color:C.sub, whiteSpace:"nowrap" }}>{fmtDT(msg.created_at)}</td>
+                      <td style={{ padding:"10px 12px", fontSize:11, color:C.sub, whiteSpace:"nowrap" }}>{fmtDT(msg.updated_at||msg.created_at)}</td>
+                      <td style={{ padding:"10px 12px", fontSize:11, color:C.red, maxWidth:200 }}>
+                        {msg.status==="failed" ? (msg.error_detail||"Unknown error") : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CampaignSummary() {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState("");
+  const [periodTab, setPeriodTab] = useState("today");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo]     = useState("");
+  const [detailCamp, setDetailCamp] = useState(null);
 
   useEffect(() => {
-    fetch("/api/campaigns", { headers: getWAHeaders() }).then(r=>r.json()).then(data=>{setCampaigns(Array.isArray(data)?data:[]);setLoading(false);}).catch(()=>setLoading(false));
+    fetch("/api/campaigns", { headers: getWAHeaders() })
+      .then(r=>r.json())
+      .then(data=>{ setCampaigns(Array.isArray(data)?data:[]); setLoading(false); })
+      .catch(()=>setLoading(false));
   }, []);
-
-  const filtered = campaigns.filter(c => c.name?.toLowerCase().includes(search.toLowerCase()));
 
   const fmtDateTime = (ts) => {
     if (!ts) return "—";
@@ -773,165 +944,190 @@ function CampaignSummary() {
       + " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
   };
 
- const downloadExcel = async (camp) => {
-  // Pull contacts from localStorage to map IDs → phone+name
-  const allContacts = (() => {
-    try { return JSON.parse(localStorage.getItem("contacts") || "[]"); } catch { return []; }
-  })();
-  const contactMap = {};
-  allContacts.forEach(c => { if (c.id) contactMap[c.id] = c; });
+  const startOfDay = (d) => { const x=new Date(d); x.setHours(0,0,0,0); return x; };
+  const endOfDay   = (d) => { const x=new Date(d); x.setHours(23,59,59,999); return x; };
 
-  // Also build a phone→name map for messages that carry to_number
-  const phoneToName = {};
-  allContacts.forEach(c => { if (c.phone) phoneToName[c.phone] = c.name || ""; });
+  const periodRange = () => {
+    const now = new Date();
+    if (periodTab === "today")  return [startOfDay(now), endOfDay(now)];
+    if (periodTab === "week")   { const f=new Date(now); f.setDate(now.getDate()-6); return [startOfDay(f), endOfDay(now)]; }
+    if (periodTab === "15days") { const f=new Date(now); f.setDate(now.getDate()-14); return [startOfDay(f), endOfDay(now)]; }
+    if (periodTab === "month")  { const f=new Date(now); f.setDate(now.getDate()-29); return [startOfDay(f), endOfDay(now)]; }
+    if (periodTab === "custom" && customFrom && customTo)
+      return [startOfDay(new Date(customFrom)), endOfDay(new Date(customTo))];
+    return [null, null];
+  };
 
-  const rows = [
-    ["CAMPAIGN DETAIL REPORT"],
-    [],
-    ["Campaign Name", camp.name],
-    ["Status", camp.status],
-    ["Start Time", fmtDateTime(camp.created_at)],
-    ["End Time", fmtDateTime(camp.updated_at || camp.created_at)],
-    [],
-    ["SUMMARY"],
-    ["Metric", "Count"],
-    ["Total Contacts", camp.total || 0],
-    ["Sent", camp.sent || 0],
-    ["Delivered", camp.delivered || 0],
-    ["Failed", camp.failed || 0],
-    ["Read", camp.read || 0],
-    [],
-    ["CONTACT-WISE STATUS"],
-    // FIX: Added Last Updated + Failure Reason columns
-    ["#", "Phone Number", "Name", "Status", "Delivered?", "Read?", "WA Message ID", "Sent At", "Last Updated", "Failure Reason"],
+  const [rangeStart, rangeEnd] = periodRange();
+  const periodCampaigns = rangeStart
+    ? campaigns.filter(c => { const t=new Date(c.created_at); return t>=rangeStart && t<=rangeEnd; })
+    : campaigns;
+
+  const searchFiltered = periodCampaigns.filter(c => c.name?.toLowerCase().includes(search.toLowerCase()));
+
+  const pStats = {
+    total:          periodCampaigns.length,
+    completed:      periodCampaigns.filter(c=>c.status==="Completed").length,
+    running:        periodCampaigns.filter(c=>c.status==="Running").length,
+    sent:           periodCampaigns.reduce((s,c)=>s+(c.sent||0),0),
+    delivered:      periodCampaigns.reduce((s,c)=>s+(c.delivered||0),0),
+    failed:         periodCampaigns.reduce((s,c)=>s+(c.failed||0),0),
+    total_contacts: periodCampaigns.reduce((s,c)=>s+(c.total||0),0),
+  };
+
+  const timelineMap = {};
+  periodCampaigns.forEach(c => {
+    const day = new Date(c.created_at).toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" });
+    if (!timelineMap[day]) timelineMap[day] = [];
+    timelineMap[day].push(c);
+  });
+  const timelineDays = Object.entries(timelineMap).sort((a,b)=>new Date(b[0])-new Date(a[0]));
+
+  const downloadAllCSV = () => {
+    const headers = ["Campaign","Status","Start Time","End Time","Sent","Delivered","Failed","Total"];
+    const rows = searchFiltered.map(c=>[
+      c.name, c.status,
+      fmtDateTime(c.created_at), fmtDateTime(c.updated_at||c.created_at),
+      c.sent||0, c.delivered||0, c.failed||0, c.total||0,
+    ]);
+    const csv = [headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'\\"')}"`).join(",")).join("\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    a.download = `campaigns_${periodTab}_report.csv`; a.click();
+  };
+
+  const periodTabs = [
+    { id:"today",  label:"Today" },
+    { id:"week",   label:"This Week" },
+    { id:"15days", label:"15 Days" },
+    { id:"month",  label:"30 Days" },
+    { id:"custom", label:"Custom" },
   ];
 
-  try {
-    // FIX: /api/live-chat has no campaignId handler — use the correct endpoint
-    const res = await fetch(`/api/campaigns?campaignId=${camp.id}`, { headers: getWAHeaders() });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const payload = await res.json();
-    // API returns array normally, or {rows:[], error, hint} if schema issue
-    const msgs = Array.isArray(payload) ? payload : (payload.rows || []);
-    if (!Array.isArray(payload) && payload.hint) {
-      rows.push(["⚠️ DB Schema Issue", payload.hint, "", "", "", "", "", "", "", ""]);
-    }
-    if (Array.isArray(msgs) && msgs.length > 0) {
-      msgs.forEach((msg, i) => {
-        const phone = msg.to_number || msg.from_number || "-";
-        // Resolve name: try msg fields first, then phone-to-name map
-        const name = msg.contact_name || phoneToName[phone] || "-";
-        const statusLabel =
-          msg.status === "read"      ? "Read" :
-          msg.status === "delivered" ? "Delivered" :
-          msg.status === "sent"      ? "Sent" :
-          msg.status === "failed"    ? "Failed" :
-          msg.status || "Sent";
-        rows.push([
-          i + 1,
-          phone,
-          name,
-          statusLabel,
-          (msg.status === "delivered" || msg.status === "read") ? "Yes" : "No",
-          msg.status === "read" ? "Yes" : "No",
-          msg.wa_message_id || "-",
-          fmtDateTime(msg.created_at),
-          fmtDateTime(msg.updated_at || msg.created_at),
-          (msg.status === "failed") ? (msg.error_detail || "Unknown error") : "-",
-        ]);
-      });
-    } else {
-      // FIX: removed fake index-based status guessing — if no rows found, say so honestly
-      rows.push(["—", "No message records found for this campaign. Messages may not have been saved correctly.", "", "", "", "", "", "", "", ""]);
-    }
-  } catch (e) {
-    rows.push(["Error", e.message, "", "", "", "", "", ""]);
-  }
-
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `campaign_${camp.name.replace(/\s+/g,"_")}_delivery_report.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-};
-
-  const downloadAllExcel = () => {
-    const headers = ["Campaign", "Status", "Start Time", "End Time", "Sent", "Delivered", "Failed", "Total"];
-    const rows = filtered.map(c => [
-      c.name,
-      c.status,
-      fmtDateTime(c.created_at),
-      fmtDateTime(c.updated_at || c.created_at),
-      c.sent || 0,
-      c.delivered || 0,
-      c.failed || 0,
-      c.total || 0,
-    ]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '\"')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `all_campaigns_log.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const deliveryRate = pStats.sent > 0 ? Math.round((pStats.delivered/pStats.sent)*100) : 0;
 
   return (
     <div>
+      {detailCamp && <DeliveryReportModal camp={detailCamp} onClose={()=>setDetailCamp(null)} />}
+
       <h2 style={{ margin:"0 0 18px", fontSize:18, fontWeight:800 }}>Campaign Summary</h2>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:22 }}>
-        <Stat icon="🚀" label="Total"     value={campaigns.length} />
-        <Stat icon="✅" label="Completed" value={campaigns.filter(c=>c.status==="Completed").length} color={C.accent} />
-        <Stat icon="⚡" label="Running"   value={campaigns.filter(c=>c.status==="Running").length}   color={C.blue} />
-        <Stat icon="⏸" label="Paused"    value={campaigns.filter(c=>c.status==="Paused").length}    color={C.yellow} />
-      </div>
-      <div style={card}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:10 }}>
-          <h3 style={{ margin:0, fontSize:14, fontWeight:700 }}>All Campaigns</h3>
-          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-            <input placeholder="🔍 Search..." value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, width:200, fontSize:13 }} />
-            <button onClick={downloadAllExcel} style={{ ...btn("secondary"), fontSize:12, padding:"8px 14px", whiteSpace:"nowrap" }}>
-              ⬇️ Export All
-            </button>
-          </div>
-        </div>
-        {loading ? <Loader /> : (
-          <div style={{ overflowX:"auto" }}>
-            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
-              <thead>
-                <tr>
-                  {["Campaign","Start Time","End Time","Sent","Delivered","Failed","Status","Log"].map(h=>(
-                    <th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(c=>(
-                  <tr key={c.id} style={{ borderBottom:`1px solid ${C.border}` }}>
-                    <td style={{ padding:"12px", fontWeight:600 }}>{c.name}</td>
-                    <td style={{ padding:"12px", fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>{fmtDateTime(c.created_at)}</td>
-                    <td style={{ padding:"12px", fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>{fmtDateTime(c.updated_at || c.created_at)}</td>
-                    <td style={{ padding:"12px", fontWeight:600 }}>{(c.sent||0).toLocaleString()}</td>
-                    <td style={{ padding:"12px", color:C.accent, fontWeight:600 }}>{(c.delivered||0).toLocaleString()}</td>
-                    <td style={{ padding:"12px", color:C.red, fontWeight:600 }}>{c.failed||0}</td>
-                    <td style={{ padding:"12px" }}><Badge status={c.status}/></td>
-                    <td style={{ padding:"12px" }}>
-                      <button onClick={()=>downloadExcel(c)}
-                        style={{ ...btn("secondary"), fontSize:11, padding:"5px 10px", whiteSpace:"nowrap" }}>
-                        ⬇️ CSV
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length===0 && <tr><td colSpan={8} style={{ padding:20, textAlign:"center", color:C.sub }}>No campaigns yet.</td></tr>}
-              </tbody>
-            </table>
+
+      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
+        {periodTabs.map(t=>(
+          <button key={t.id} onClick={()=>setPeriodTab(t.id)}
+            style={{ padding:"7px 16px", borderRadius:8, border:`1px solid ${periodTab===t.id ? C.accent : C.border}`,
+              background:periodTab===t.id ? C.accentLight : "transparent",
+              color:periodTab===t.id ? C.accent2 : C.sub,
+              fontWeight:periodTab===t.id?700:500, fontSize:13, cursor:"pointer" }}>
+            {t.label}
+          </button>
+        ))}
+        {periodTab === "custom" && (
+          <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+            <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}
+              style={{ ...inp, fontSize:13, padding:"6px 10px", width:140 }} />
+            <span style={{ color:C.sub, fontSize:13 }}>to</span>
+            <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)}
+              style={{ ...inp, fontSize:13, padding:"6px 10px", width:140 }} />
           </div>
         )}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:12, marginBottom:20 }}>
+        <Stat icon="🚀" label="Campaigns"  value={pStats.total} />
+        <Stat icon="✅" label="Completed"  value={pStats.completed} color={C.accent} />
+        <Stat icon="👥" label="Recipients" value={pStats.total_contacts.toLocaleString()} color={C.blue} />
+        <Stat icon="📤" label="Sent"       value={pStats.sent.toLocaleString()} color={C.blue} />
+        <Stat icon="📨" label="Delivered"  value={pStats.delivered.toLocaleString()} color={C.accent} />
+        <Stat icon="❌" label="Failed"     value={pStats.failed.toLocaleString()} color={C.red} />
+        <Stat icon="📈" label="Delivery %" value={`${deliveryRate}%`} color={deliveryRate>80?C.accent:deliveryRate>50?C.yellow:C.red} />
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:16 }}>
+
+        {timelineDays.length > 0 && (
+          <div style={card}>
+            <h3 style={{ margin:"0 0 14px", fontSize:14, fontWeight:700 }}>📅 Campaign Timeline</h3>
+            <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+              {timelineDays.map(([day, dayCamps]) => {
+                const daySent      = dayCamps.reduce((s,c)=>s+(c.sent||0),0);
+                const dayDelivered = dayCamps.reduce((s,c)=>s+(c.delivered||0),0);
+                const dayFailed    = dayCamps.reduce((s,c)=>s+(c.failed||0),0);
+                return (
+                  <div key={day} style={{ display:"flex", gap:0, borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ minWidth:110, padding:"12px 10px 12px 0", display:"flex", flexDirection:"column", alignItems:"flex-end", borderRight:`2px solid ${C.border}`, marginRight:16 }}>
+                      <span style={{ fontSize:12, fontWeight:700, color:C.text }}>{day.split(" ").slice(0,2).join(" ")}</span>
+                      <span style={{ fontSize:11, color:C.sub }}>{day.split(" ")[2]}</span>
+                      <span style={{ fontSize:11, color:C.sub, marginTop:4 }}>{dayCamps.length} campaign{dayCamps.length>1?"s":""}</span>
+                    </div>
+                    <div style={{ flex:1, padding:"10px 0", display:"flex", flexDirection:"column", gap:6 }}>
+                      {dayCamps.map(c=>(
+                        <div key={c.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 10px", background:C.bg, borderRadius:8, flexWrap:"wrap" }}>
+                          <span style={{ flex:"1 1 160px", fontWeight:600, fontSize:13 }}>{c.name}</span>
+                          <div style={{ display:"flex", gap:8, fontSize:12, flexWrap:"wrap" }}>
+                            <span style={{ color:C.blue }}>📤 {(c.sent||0).toLocaleString()}</span>
+                            <span style={{ color:C.accent }}>📨 {(c.delivered||0).toLocaleString()}</span>
+                            <span style={{ color:C.red }}>❌ {c.failed||0}</span>
+                          </div>
+                          <Badge status={c.status} />
+                          <button onClick={()=>setDetailCamp(c)}
+                            style={{ ...btn("secondary"), fontSize:11, padding:"4px 10px", whiteSpace:"nowrap" }}>
+                            📋 Report
+                          </button>
+                        </div>
+                      ))}
+                      <div style={{ fontSize:12, color:C.sub, paddingLeft:10, paddingBottom:4 }}>
+                        Day total — Sent: <b style={{color:C.blue}}>{daySent.toLocaleString()}</b> · Delivered: <b style={{color:C.accent}}>{dayDelivered.toLocaleString()}</b> · Failed: <b style={{color:C.red}}>{dayFailed}</b>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div style={card}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:10 }}>
+            <h3 style={{ margin:0, fontSize:14, fontWeight:700 }}>All Campaigns</h3>
+            <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+              <input placeholder="🔍 Search..." value={search} onChange={e=>setSearch(e.target.value)} style={{ ...inp, width:200, fontSize:13 }} />
+              <button onClick={downloadAllCSV} style={{ ...btn("secondary"), fontSize:12, padding:"8px 14px", whiteSpace:"nowrap" }}>⬇️ Export</button>
+            </div>
+          </div>
+          {loading ? <Loader /> : (
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
+                <thead>
+                  <tr>
+                    {["Campaign","Start Time","End Time","Sent","Delivered","Failed","Status","Report"].map(h=>(
+                      <th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {searchFiltered.map(c=>(
+                    <tr key={c.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                      <td style={{ padding:"12px", fontWeight:600 }}>{c.name}</td>
+                      <td style={{ padding:"12px", fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>{fmtDateTime(c.created_at)}</td>
+                      <td style={{ padding:"12px", fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>{fmtDateTime(c.updated_at||c.created_at)}</td>
+                      <td style={{ padding:"12px", fontWeight:600 }}>{(c.sent||0).toLocaleString()}</td>
+                      <td style={{ padding:"12px", color:C.accent, fontWeight:600 }}>{(c.delivered||0).toLocaleString()}</td>
+                      <td style={{ padding:"12px", color:C.red, fontWeight:600 }}>{c.failed||0}</td>
+                      <td style={{ padding:"12px" }}><Badge status={c.status}/></td>
+                      <td style={{ padding:"12px" }}>
+                        <button onClick={()=>setDetailCamp(c)}
+                          style={{ ...btn("secondary"), fontSize:11, padding:"5px 10px", whiteSpace:"nowrap" }}>
+                          📋 Report
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {searchFiltered.length===0 && <tr><td colSpan={8} style={{ padding:20, textAlign:"center", color:C.sub }}>No campaigns in this period.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
