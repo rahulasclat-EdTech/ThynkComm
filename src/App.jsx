@@ -2796,9 +2796,6 @@ function MessageTemplate() {
             })()}
           </div>
         </div>
-            );
-          })}
-        </div>
       )}
     </div>
 
