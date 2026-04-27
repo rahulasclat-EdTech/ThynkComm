@@ -925,19 +925,9 @@ function DeliveryReportModal({ camp, onClose }) {
                     {msgs.length === 0 ? (
                       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
                         <div style={{ fontSize:15 }}>📭</div>
-                        <div style={{ color:C.sub, fontWeight:600 }}>No message records found for this campaign</div>
-                        <div style={{ color:C.sub, fontSize:12, maxWidth:480, textAlign:"center", lineHeight:1.6 }}>
-                          This campaign was sent before per-number tracking was set up. The <code>campaign_id</code> column was missing from the messages table when this was sent, so rows were saved without it.
-                          <br/><br/>
-                          <strong style={{color:C.text}}>Run this SQL in Supabase → SQL Editor, then click 🔄 Refresh:</strong>
-                        </div>
-                        <pre style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", fontSize:11, color:C.accent2, textAlign:"left", maxWidth:560, overflowX:"auto", margin:0 }}>{`ALTER TABLE messages ADD COLUMN IF NOT EXISTS campaign_id TEXT;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS direction TEXT;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_message_id TEXT;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS contact_name TEXT;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS error_detail TEXT;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS source TEXT;`}</pre>
-                        <div style={{ color:C.sub, fontSize:12 }}>After running the SQL, new campaigns will automatically save per-number status. Old campaigns cannot be recovered.</div>
+                        <div style={{ color:C.sub, fontWeight:600 }}>No messages found for this campaign</div>
+                        <div style={{ color:C.sub, fontSize:12 }}>Click Refresh to try again, or this campaign may have 0 messages saved.</div>
+                        <button onClick={loadMsgs} style={{ ...btn(), fontSize:13, padding:"8px 20px" }}>🔄 Refresh</button>
                       </div>
                     ) : (
                       <span style={{ color:C.sub }}>No results match your filter.</span>
