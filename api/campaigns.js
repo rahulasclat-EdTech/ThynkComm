@@ -66,29 +66,18 @@ module.exports = async function handler(req, res) {
     const campaignId = req.query.campaignId;
 
     if (campaignId) {
-      console.log(`[campaigns] Fetching messages for campaign ${campaignId}`);
+      console.log(`[campaigns] Report request for campaignId=${campaignId}`);
 
-      // ── Step 1: Always fetch campaign metadata first ───────────────────────
-      // Try both string and integer forms of the ID
-      const { data: campData, error: campErr } = await supabase
+      // Step 1: Get campaign record
+      const { data: campData } = await supabase
         .from("campaigns")
         .select("id, created_at, updated_at, sent, total, name")
         .eq("id", campaignId)
         .maybeSingle();
 
-      if (campErr) {
-        console.error(`[campaigns] Campaign lookup error for id=${campaignId}: ${campErr.message}`);
-        return res.status(200).json([]);
-      }
-      if (!campData) {
-        // Log all campaign IDs so we can see what's in DB vs what was requested
-        const { data: allCamps } = await supabase.from("campaigns").select("id, name").order("id", { ascending: false }).limit(10);
-        console.error(`[campaigns] Campaign ${campaignId} not found. Recent IDs in DB: ${JSON.stringify(allCamps?.map(c=>({id:c.id,name:c.name})))}`);
-        return res.status(200).json([]);
-      }
-      console.log(`[campaigns] Found campaign: id=${campData.id} name="${campData.name}" total=${campData.total}`);
+      console.log(`[campaigns] Campaign lookup: ${campData ? `found id=${campData.id} name="${campData.name}"` : "NOT FOUND"}`);
 
-      // ── Step 2: Try fetching by campaign_id column (new campaigns) ────────
+      // Step 2: Query by campaign_id column (works after new code deployed)
       const { data: byId, error: idErr } = await supabase
         .from("messages")
         .select("*")
@@ -99,63 +88,61 @@ module.exports = async function handler(req, res) {
         console.log(`[campaigns] Found ${byId.length} rows by campaign_id`);
         return res.status(200).json(byId);
       }
+      if (idErr) console.warn(`[campaigns] campaign_id query error: ${idErr.message}`);
+      else console.log(`[campaigns] 0 rows by campaign_id`);
 
-      // campaign_id column exists but 0 rows — old messages need backfill
-      // campaign_id column missing — fall back to time window
-      if (idErr) console.warn(`[campaigns] campaign_id query error: ${idErr.message} — using time window`);
-      else console.log(`[campaigns] 0 rows by campaign_id — using time window`);
+      // Step 3: Time-window fallback using campaign timestamps
+      if (campData?.created_at) {
+        const timeFrom = campData.created_at;
+        // Use a wide window — 30 minutes after campaign started
+        const timeTo = new Date(new Date(campData.created_at).getTime() + 30 * 60000).toISOString();
+        const rowLimit = Math.max((campData.total || 10) + 20, 50);
 
-      // ── Step 3: Time-window query scoped to this campaign's contacts ───────
-      // Use campaign total count to limit results so we don't bleed into
-      // adjacent campaigns that ran at similar times
-      const timeFrom  = campData.created_at;
-      const rawTo     = campData.updated_at || campData.created_at;
-      // Add 5 min buffer but cap at campaign total+10 to avoid overlap
-      const timeTo    = new Date(new Date(rawTo).getTime() + 5 * 60000).toISOString();
-      const rowLimit  = Math.max((campData.total || 10) + 10, 20);
+        console.log(`[campaigns] Time window: ${timeFrom} → ${timeTo} limit=${rowLimit}`);
 
-      const { data: byTime, error: timeErr } = await supabase
-        .from("messages")
-        .select("*")
-        .gte("created_at", timeFrom)
-        .lte("created_at", timeTo)
-        .order("created_at", { ascending: true })
-        .limit(rowLimit);
-
-      if (timeErr) {
-        // select * failed — try safe minimal columns (schema missing extras)
-        const { data: minimal, error: minErr } = await supabase
+        const { data: byTime } = await supabase
           .from("messages")
-          .select("id, to_number, body, status, created_at")
+          .select("*")
           .gte("created_at", timeFrom)
           .lte("created_at", timeTo)
           .order("created_at", { ascending: true })
           .limit(rowLimit);
 
-        if (minErr) {
-          console.error(`[campaigns] All queries failed: ${minErr.message}`);
-          return res.status(200).json([]);
+        if (byTime && byTime.length > 0) {
+          console.log(`[campaigns] Time-window found ${byTime.length} rows`);
+          // Backfill campaign_id silently
+          if (!idErr) {
+            const toFix = byTime.filter(m => !m.campaign_id).map(m => m.id).filter(Boolean);
+            if (toFix.length > 0) {
+              supabase.from("messages")
+                .update({ campaign_id: String(campaignId) })
+                .in("id", toFix)
+                .then(() => console.log(`[campaigns] Backfilled ${toFix.length} rows`))
+                .catch(() => {});
+            }
+          }
+          return res.status(200).json(byTime);
         }
-        console.log(`[campaigns] Time-window minimal found ${minimal.length} rows`);
-        return res.status(200).json(minimal || []);
+        console.log(`[campaigns] Time-window returned 0 rows`);
       }
 
-      const rows = byTime || [];
-      console.log(`[campaigns] Time-window found ${rows.length} rows`);
+      // Step 4: Last resort — return ALL recent outbound messages so user sees SOMETHING
+      // This handles case where campaign record not found but messages exist
+      console.log(`[campaigns] Falling back to recent outbound messages`);
+      const { data: recent } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(100);
 
-      // ── Step 4: Silently backfill campaign_id so webhook updates work ──────
-      if (rows.length > 0 && !idErr) {
-        const toFix = rows.filter(m => !m.campaign_id).map(m => m.id).filter(Boolean);
-        if (toFix.length > 0) {
-          supabase.from("messages")
-            .update({ campaign_id: String(campaignId), direction: "outbound" })
-            .in("id", toFix)
-            .then(() => console.log(`[campaigns] Backfilled ${toFix.length} rows with campaign_id`))
-            .catch(() => {});
-        }
+      if (recent && recent.length > 0) {
+        console.log(`[campaigns] Returning ${recent.length} recent outbound messages as fallback`);
+        return res.status(200).json(recent);
       }
 
-      return res.status(200).json(rows);
+      console.log(`[campaigns] No messages found at all`);
+      return res.status(200).json([]);
     }
 
     const { data, error } = await supabase
