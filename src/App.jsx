@@ -5376,7 +5376,7 @@ function DebugPanel() {
   const runDiag = async () => {
     setLoading(true); setReport(null);
     try {
-      const r = await fetch("/api/debug", { headers: getWAHeaders() });
+      const r = await fetch("/api/admin?resource=debug", { headers: getWAHeaders() });
       setReport(await r.json());
     } catch(e) { setReport({ error: e.message }); }
     setLoading(false);
@@ -5388,7 +5388,7 @@ function DebugPanel() {
     try {
       const selectedTpl = templates.find(t => t.name === testTpl);
       const lang = selectedTpl?.language || testLang || "en_US";
-      const r = await fetch("/api/debug", {
+      const r = await fetch("/api/admin?resource=debug", {
         method: "POST",
         headers: { ...getWAHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ template_name: testTpl, language_code: lang, to: testTo }),
