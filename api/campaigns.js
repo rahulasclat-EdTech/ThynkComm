@@ -77,19 +77,33 @@ module.exports = async function handler(req, res) {
 
       console.log(`[campaigns] Campaign lookup: ${campData ? `found id=${campData.id} name="${campData.name}"` : "NOT FOUND"}`);
 
-      // Step 2: Query by campaign_id column (works after new code deployed)
-      const { data: byId, error: idErr } = await supabase
-        .from("messages")
-        .select("*")
+      // Step 2: Query by campaign_id column
+      // Try both integer and string forms since column type may vary
+      let byId = null, idErr = null;
+      
+      // Try with raw value first (integer PK)
+      const r1 = await supabase.from("messages").select("*")
+        .eq("campaign_id", campaignId)
+        .order("created_at", { ascending: true });
+      
+      if (!r1.error && r1.data?.length > 0) {
+        console.log(`[campaigns] Found ${r1.data.length} rows by campaign_id (integer)`);
+        return res.status(200).json(r1.data);
+      }
+      
+      // Try with string form
+      const r2 = await supabase.from("messages").select("*")
         .eq("campaign_id", String(campaignId))
         .order("created_at", { ascending: true });
-
-      if (!idErr && byId && byId.length > 0) {
-        console.log(`[campaigns] Found ${byId.length} rows by campaign_id`);
-        return res.status(200).json(byId);
+        
+      if (!r2.error && r2.data?.length > 0) {
+        console.log(`[campaigns] Found ${r2.data.length} rows by campaign_id (string)`);
+        return res.status(200).json(r2.data);
       }
+      
+      idErr = r1.error || r2.error;
       if (idErr) console.warn(`[campaigns] campaign_id query error: ${idErr.message}`);
-      else console.log(`[campaigns] 0 rows by campaign_id`);
+      else console.log(`[campaigns] 0 rows by campaign_id — using time window`);
 
       // Step 3: Time-window fallback using campaign timestamps
       if (campData?.created_at) {
@@ -115,7 +129,7 @@ module.exports = async function handler(req, res) {
             const toFix = byTime.filter(m => !m.campaign_id).map(m => m.id).filter(Boolean);
             if (toFix.length > 0) {
               supabase.from("messages")
-                .update({ campaign_id: String(campaignId) })
+                .update({ campaign_id: campaignId })
                 .in("id", toFix)
                 .then(() => console.log(`[campaigns] Backfilled ${toFix.length} rows`))
                 .catch(() => {});
@@ -126,22 +140,8 @@ module.exports = async function handler(req, res) {
         console.log(`[campaigns] Time-window returned 0 rows`);
       }
 
-      // Step 4: Last resort — return ALL recent outbound messages so user sees SOMETHING
-      // This handles case where campaign record not found but messages exist
-      console.log(`[campaigns] Falling back to recent outbound messages`);
-      const { data: recent } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("direction", "outbound")
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (recent && recent.length > 0) {
-        console.log(`[campaigns] Returning ${recent.length} recent outbound messages as fallback`);
-        return res.status(200).json(recent);
-      }
-
-      console.log(`[campaigns] No messages found at all`);
+      // No messages found for this campaign
+      console.log(`[campaigns] No messages found for campaign ${campaignId}`);
       return res.status(200).json([]);
     }
 
@@ -239,7 +239,7 @@ module.exports = async function handler(req, res) {
             direction:     "outbound",
             source:        "portal",
             wa_message_id: rData.messages?.[0]?.id || null,
-            campaign_id:   String(campaign.id),  // cast to string — works for both UUID and integer PKs
+            campaign_id:   campaign.id,  // use raw value — matches DB column type
             error_detail:  metaErrMsg,
           });
 
@@ -310,7 +310,7 @@ module.exports = async function handler(req, res) {
     // Backfill campaign_id and direction on those rows
     const { error: updateErr } = await supabase
       .from("messages")
-      .update({ campaign_id: String(campaignId), direction: "outbound" })
+      .update({ campaign_id: campaignId, direction: "outbound" })
       .in("id", ids);
 
     if (updateErr) return res.status(500).json({ error: updateErr.message });
