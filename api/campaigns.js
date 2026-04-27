@@ -41,78 +41,18 @@ async function sendOne(toNorm, payload, token, phoneId) {
   return { ok, rData };
 }
 
-// ── Schema cache: detected once per cold start ───────────────────────────────
-let _schemaColumns = null; // null = not yet detected
-
-async function getMessageColumns() {
-  if (_schemaColumns) return _schemaColumns;
-  // Fetch one row to see what columns exist. If table is empty, use information_schema.
-  const { data, error } = await supabase.from("messages").select("*").limit(1);
-  if (!error && data) {
-    if (data.length > 0) {
-      _schemaColumns = new Set(Object.keys(data[0]));
-    } else {
-      // Table exists but empty — assume full schema since user just ran migrations
-      _schemaColumns = new Set(["id","to_number","from_number","body","status","direction",
-        "source","campaign_id","contact_name","template_name","wa_message_id",
-        "error_detail","error_code","tag","created_at","updated_at"]);
-    }
-    console.log(`[campaigns] Schema detected: ${[..._schemaColumns].join(", ")}`);
-  } else {
-    // Can't detect — use minimal safe set
-    console.warn(`[campaigns] Schema detection failed: ${error?.message} — using minimal columns`);
-    _schemaColumns = new Set(["to_number","body","status","direction"]);
-  }
-  return _schemaColumns;
-}
-
+// ── Insert message row — always uses full column set ─────────────────────────
+// Supabase will return a clear error if a column is missing.
+// We log the FULL error so Vercel logs show exactly what's wrong.
 async function safeInsertMessage(row) {
-  const cols = await getMessageColumns();
-
-  // Build insert row using ONLY columns that exist in the schema
-  // CRITICAL: campaign_id is ALWAYS included if the column exists — never strip it
-  const safeRow = {};
-  for (const [key, val] of Object.entries(row)) {
-    if (cols.has(key)) safeRow[key] = val;
-  }
-
-  const { error } = await supabase.from("messages").insert([safeRow]);
+  const { error } = await supabase.from("messages").insert([row]);
   if (!error) {
-    console.log(`[campaigns] Insert OK for ${row.to_number} (cols: ${Object.keys(safeRow).join(",")})`);
+    console.log(`[campaigns] Inserted message for ${row.to_number} campaign_id=${row.campaign_id}`);
     return;
   }
-
-  // Insert failed — if it was a column error, reset schema cache and retry once
-  const isColumnError = error.message?.includes("column") || error.code === "42703" || error.code === "PGRST204";
-  if (isColumnError) {
-    console.warn(`[campaigns] Column error — resetting schema cache and retrying: ${error.message}`);
-    _schemaColumns = null;
-    const freshCols = await getMessageColumns();
-    const retryRow = {};
-    for (const [key, val] of Object.entries(row)) {
-      if (freshCols.has(key)) retryRow[key] = val;
-    }
-    const { error: e2 } = await supabase.from("messages").insert([retryRow]);
-    if (!e2) {
-      console.log(`[campaigns] Retry insert OK for ${row.to_number}`);
-      return;
-    }
-    console.error(`[campaigns] Retry failed: ${e2.message}`);
-  }
-
-  // Last resort: absolute bare minimum — these 4 columns exist in every schema
-  const { error: eMin } = await supabase.from("messages").insert([{
-    to_number:   row.to_number,
-    body:        row.body,
-    status:      row.status,
-    direction:   row.direction || "outbound",
-  }]);
-  if (!eMin) {
-    // Saved but WITHOUT campaign_id — log this prominently so it shows in Vercel logs
-    console.error(`[campaigns] ⚠️ SAVED WITHOUT campaign_id for ${row.to_number}. campaign_id column missing! Run SQL: ALTER TABLE messages ADD COLUMN IF NOT EXISTS campaign_id TEXT;`);
-    return;
-  }
-  console.error(`[campaigns] ALL INSERTS FAILED for ${row.to_number}. Error: ${eMin.message}. Row: ${JSON.stringify(row)}`);
+  // Log full error detail — visible in Vercel logs
+  console.error(`[campaigns] INSERT FAILED for ${row.to_number}: ${error.message} | code: ${error.code} | details: ${error.details} | hint: ${error.hint}`);
+  console.error(`[campaigns] Row was: ${JSON.stringify(row)}`);
 }
 
 module.exports = async function handler(req, res) {
@@ -129,16 +69,24 @@ module.exports = async function handler(req, res) {
       console.log(`[campaigns] Fetching messages for campaign ${campaignId}`);
 
       // ── Step 1: Always fetch campaign metadata first ───────────────────────
+      // Try both string and integer forms of the ID
       const { data: campData, error: campErr } = await supabase
         .from("campaigns")
-        .select("created_at, updated_at, sent, total, name")
+        .select("id, created_at, updated_at, sent, total, name")
         .eq("id", campaignId)
-        .single();
+        .maybeSingle();
 
-      if (campErr || !campData) {
-        console.error(`[campaigns] Campaign ${campaignId} not found`);
+      if (campErr) {
+        console.error(`[campaigns] Campaign lookup error for id=${campaignId}: ${campErr.message}`);
         return res.status(200).json([]);
       }
+      if (!campData) {
+        // Log all campaign IDs so we can see what's in DB vs what was requested
+        const { data: allCamps } = await supabase.from("campaigns").select("id, name").order("id", { ascending: false }).limit(10);
+        console.error(`[campaigns] Campaign ${campaignId} not found. Recent IDs in DB: ${JSON.stringify(allCamps?.map(c=>({id:c.id,name:c.name})))}`);
+        return res.status(200).json([]);
+      }
+      console.log(`[campaigns] Found campaign: id=${campData.id} name="${campData.name}" total=${campData.total}`);
 
       // ── Step 2: Try fetching by campaign_id column (new campaigns) ────────
       const { data: byId, error: idErr } = await supabase

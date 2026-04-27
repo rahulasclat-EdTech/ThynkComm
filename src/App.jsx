@@ -1,5 +1,19 @@
 import { useState, useRef, useEffect } from "react";
 
+// ── IST date/time formatter — always shows Asia/Kolkata (IST) time ────────────
+function fmtIST(ts, opts = {}) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d)) return "—";
+  const { dateOnly = false, timeOnly = false } = opts;
+  const tz = "Asia/Kolkata";
+  if (timeOnly) return d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true, timeZone:tz });
+  if (dateOnly) return d.toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric", timeZone:tz });
+  return d.toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric", timeZone:tz })
+    + " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true, timeZone:tz });
+}
+
+
 // ─── CREDENTIAL HELPER ────────────────────────────────────────────
 // Reads from localStorage first; if empty, fetches from /api/wa-config (env vars).
 // This means credentials entered in Vercel env vars are always the fallback —
@@ -766,12 +780,7 @@ function DeliveryReportModal({ camp, onClose }) {
   const [backfilling, setBackfilling]   = useState(false);
   const [backfillDone, setBackfillDone] = useState(false);
 
-  const fmtDT = (ts) => {
-    if (!ts) return "—";
-    const d = new Date(ts);
-    return d.toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })
-      + " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
-  };
+  const fmtDT = fmtIST;
 
   const loadMsgs = () => {
     setLoading(true); setError(null);
@@ -988,12 +997,7 @@ function CampaignSummary() {
       .catch(()=>setLoading(false));
   }, []);
 
-  const fmtDateTime = (ts) => {
-    if (!ts) return "—";
-    const d = new Date(ts);
-    return d.toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })
-      + " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
-  };
+  const fmtDateTime = fmtIST;
 
   const startOfDay = (d) => { const x=new Date(d); x.setHours(0,0,0,0); return x; };
   const endOfDay   = (d) => { const x=new Date(d); x.setHours(23,59,59,999); return x; };
@@ -1028,7 +1032,7 @@ function CampaignSummary() {
 
   const timelineMap = {};
   periodCampaigns.forEach(c => {
-    const day = new Date(c.created_at).toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" });
+    const day = fmtIST(c.created_at, { dateOnly: true });
     if (!timelineMap[day]) timelineMap[day] = [];
     timelineMap[day].push(c);
   });
@@ -1573,7 +1577,7 @@ function MessageLog() {
             All messages sent via the Portal and API calls
             {lastFetched && (
               <span style={{ marginLeft:10, fontSize:11, color:C.accent }}>
-                · Last synced {lastFetched.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}
+                · Last synced {lastFetched.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit", timeZone:"Asia/Kolkata" })}
               </span>
             )}
           </p>
@@ -1722,8 +1726,7 @@ function MessageLog() {
                       style={{ borderBottom:`1px solid ${C.border}30`,
                                background: i%2===0 ? "transparent" : "#0b1520" }}>
                       <td style={{ padding:"10px 14px", color:C.sub, whiteSpace:"nowrap", fontSize:11 }}>
-                        {m.created_at ? new Date(m.created_at).toLocaleString("en-IN",
-                          { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }) : "—"}
+                        {m.created_at ? fmtIST(m.created_at) : "—"}
                       </td>
                       <td style={{ padding:"10px 14px", fontWeight:600, fontFamily:"monospace", fontSize:12 }}>
                         +{(m.to_number||"").replace(/^\+/,"")}
@@ -2016,7 +2019,7 @@ function MessageTemplate() {
             Create, submit and track WhatsApp message template approvals
             {syncTime && (
               <span style={{ marginLeft:10, fontSize:11, color:C.accent }}>
-                · Synced {syncTime.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}
+                · Synced {syncTime.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit", timeZone:"Asia/Kolkata" })}
               </span>
             )}
           </p>
@@ -4709,8 +4712,8 @@ function LiveChat() {
     const now = new Date();
     const isToday = d.toDateString() === now.toDateString();
     return isToday
-      ? d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit" })
-      : d.toLocaleDateString("en-IN", { day:"numeric", month:"short" });
+      ? d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", timeZone:"Asia/Kolkata" })
+      : d.toLocaleDateString("en-IN", { day:"numeric", month:"short" , timeZone:"Asia/Kolkata" });
   };
 
   const activeConv = conversations.find(c => c.phone === activePhone);
