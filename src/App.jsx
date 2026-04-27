@@ -2812,18 +2812,67 @@ function ListTemplate() {
 function AutoResponder() {
   const STORAGE_KEY = "auto_responders";
   const { templates, loading: tplLoading } = useAllTemplates();
-  const [rules, setRules] = useState(() => {
-    const s = localStorage.getItem(STORAGE_KEY);
-    return s ? JSON.parse(s) : [
-      { id:1, keyword:"PRICE",   matchType:"exact",    responseType:"text", response:"Our pricing starts at ₹499/mo. Visit our website for details.", templateName:"", languageCode:"en_US", active:true },
-      { id:2, keyword:"SUPPORT", matchType:"contains", responseType:"text", response:"Support team available Mon-Fri 9AM-6PM.", templateName:"", languageCode:"en_US", active:true },
-    ];
-  });
+  const [rules, setRules] = useState([]);
+  const [loadingRules, setLoadingRules] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // "saved" | "error"
   const [showAdd, setShowAdd] = useState(false);
   const emptyForm = { keyword:"", matchType:"contains", responseType:"text", response:"", templateName:"", languageCode:"en_US", active:true };
   const [form, setForm] = useState(emptyForm);
 
-  const save = (rs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(rs)); setRules(rs); };
+  // Load from Supabase on mount, fall back to localStorage
+  useEffect(() => {
+    fetch("/api/admin?resource=auto-responder", { headers: getWAHeaders() })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          // Shape Supabase rows back to frontend format
+          const shaped = data.map(r => ({
+            id:           r.id,
+            keyword:      r.keyword,
+            matchType:    r.match_type,
+            responseType: r.response_type || "text",
+            response:     r.response_text || "",
+            templateName: r.template_name || "",
+            languageCode: r.language_code || "en_US",
+            active:       r.active,
+          }));
+          setRules(shaped);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(shaped));
+        } else {
+          // Fall back to localStorage defaults
+          const s = localStorage.getItem(STORAGE_KEY);
+          setRules(s ? JSON.parse(s) : [
+            { id:1, keyword:"PRICE",   matchType:"exact",    responseType:"text", response:"Our pricing starts at ₹499/mo. Visit our website for details.", templateName:"", languageCode:"en_US", active:true },
+            { id:2, keyword:"SUPPORT", matchType:"contains", responseType:"text", response:"Support team available Mon-Fri 9AM-6PM.", templateName:"", languageCode:"en_US", active:true },
+          ]);
+        }
+        setLoadingRules(false);
+      })
+      .catch(() => {
+        const s = localStorage.getItem(STORAGE_KEY);
+        setRules(s ? JSON.parse(s) : []);
+        setLoadingRules(false);
+      });
+  }, []);
+
+  // Save to both Supabase AND localStorage
+  const save = async (rs) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rs));
+    setRules(rs);
+    setSaving(true); setSaveStatus(null);
+    try {
+      const r = await fetch("/api/admin?resource=auto-responder", {
+        method: "POST",
+        headers: { ...getWAHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ rules: rs }),
+      });
+      setSaveStatus(r.ok ? "saved" : "error");
+    } catch { setSaveStatus("error"); }
+    setSaving(false);
+    setTimeout(() => setSaveStatus(null), 3000);
+  };
+
   const toggle = (id) => save(rules.map(r => r.id===id ? {...r, active:!r.active} : r));
   const remove = (id) => { if (!window.confirm("Delete this rule?")) return; save(rules.filter(r => r.id!==id)); };
   const add = () => {
@@ -2841,9 +2890,15 @@ function AutoResponder() {
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Auto-Responder</h2>
           <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Automatically reply 24/7 — with custom text or your approved Meta templates</p>
         </div>
-        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Rule</button>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {saving && <span style={{ fontSize:12, color:C.sub }}>⏳ Saving...</span>}
+          {saveStatus==="saved" && <span style={{ fontSize:12, color:C.accent }}>✅ Saved to Supabase</span>}
+          {saveStatus==="error" && <span style={{ fontSize:12, color:C.red }}>⚠️ Save failed — rules only in browser</span>}
+          <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Add Rule</button>
+        </div>
       </div>
 
+      {loadingRules && <div style={{ padding:20, color:C.sub, fontSize:13 }}>⏳ Loading rules from Supabase...</div>}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:22 }}>
         <Stat icon="🔄" label="Total Rules"  value={rules.length} />
         <Stat icon="✅" label="Active Rules" value={rules.filter(r=>r.active).length} color={C.accent} />
@@ -2936,25 +2991,61 @@ function AutoResponder() {
 // ─── CHATBOT ──────────────────────────────────────────────────────
 function ChatBot() {
   const STORAGE_KEY = "chatbot_flows";
-  // Use merged list — shows both Meta-approved AND locally created templates
   const { templates, loading: tplLoading } = useAllTemplates();
-  const [flows, setFlows] = useState(() => {
-    const s = localStorage.getItem(STORAGE_KEY);
-    return s ? JSON.parse(s) : [
-      { id:1, name:"Lead Qualification", triggers:"Hi, Hello, Start", active:true,
-        steps:[
-          { type:"message",  content:"Welcome! 👋 What can I help you with today?" },
-          { type:"collect",  content:"Name" },
-          { type:"message",  content:"Thanks! Our team will reach out shortly." },
-        ]
-      },
-    ];
-  });
+  const [flows, setFlows]           = useState([]);
+  const [loadingFlows, setLoadingFlows] = useState(true);
+  const [saving, setSaving]         = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null);
   const [showAdd, setShowAdd]       = useState(false);
   const [form, setForm]             = useState({ name:"", triggers:"" });
   const [activeFlow, setActiveFlow] = useState(null);
 
-  const save  = (fs) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(fs)); setFlows(fs); };
+  // Load from Supabase on mount, fall back to localStorage
+  useEffect(() => {
+    fetch("/api/admin?resource=chatbot-flows", { headers: getWAHeaders() })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setFlows(data);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } else {
+          const s = localStorage.getItem(STORAGE_KEY);
+          setFlows(s ? JSON.parse(s) : [
+            { id:1, name:"Lead Qualification", triggers:"Hi, Hello, Start", active:true,
+              steps:[
+                { type:"message", content:"Welcome! 👋 What can I help you with today?", templateName:"", languageCode:"en_US" },
+                { type:"collect", content:"Name", templateName:"", languageCode:"en_US" },
+                { type:"message", content:"Thanks! Our team will reach out shortly.", templateName:"", languageCode:"en_US" },
+              ]
+            },
+          ]);
+        }
+        setLoadingFlows(false);
+      })
+      .catch(() => {
+        const s = localStorage.getItem(STORAGE_KEY);
+        setFlows(s ? JSON.parse(s) : []);
+        setLoadingFlows(false);
+      });
+  }, []);
+
+  // Save to Supabase AND localStorage
+  const save = async (fs) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(fs));
+    setFlows(fs);
+    setSaving(true); setSaveStatus(null);
+    try {
+      const r = await fetch("/api/admin?resource=chatbot-flows", {
+        method: "POST",
+        headers: { ...getWAHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ flows: fs }),
+      });
+      setSaveStatus(r.ok ? "saved" : "error");
+    } catch { setSaveStatus("error"); }
+    setSaving(false);
+    setTimeout(() => setSaveStatus(null), 3000);
+  };
+
   const toggle = (id) => save(flows.map(f => f.id===id ? {...f, active:!f.active} : f));
   const remove = (id) => { if (!window.confirm("Delete this flow?")) return; save(flows.filter(f => f.id!==id)); if(activeFlow===id) setActiveFlow(null); };
   const add = () => {
@@ -3153,8 +3244,15 @@ function ChatBot() {
           <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>ChatBot Builder</h2>
           <p style={{ margin:"4px 0 0", fontSize:13, color:C.sub }}>Build automated flows — supports text messages and approved Meta templates</p>
         </div>
-        <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {saving && <span style={{ fontSize:12, color:C.sub }}>⏳ Saving...</span>}
+          {saveStatus==="saved" && <span style={{ fontSize:12, color:C.accent }}>✅ Saved to Supabase</span>}
+          {saveStatus==="error" && <span style={{ fontSize:12, color:C.red }}>⚠️ Save failed</span>}
+          <button style={btn()} onClick={()=>setShowAdd(!showAdd)}>+ Create Flow</button>
+        </div>
       </div>
+
+      {loadingFlows && <div style={{ padding:20, color:C.sub, fontSize:13 }}>⏳ Loading flows from Supabase...</div>}
 
       {showAdd && (
         <div style={{ ...card, marginBottom:18, border:`1.5px solid ${C.accent}`, background:C.accentLight }}>
