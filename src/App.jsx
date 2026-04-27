@@ -777,10 +777,8 @@ function DeliveryReportModal({ camp, onClose }) {
     fetch(`/api/campaigns?campaignId=${camp.id}`, { headers: getWAHeaders() })
       .then(r => r.json())
       .then(payload => {
+        // API now always returns a plain array
         const rows = Array.isArray(payload) ? payload : (payload.rows || []);
-        if (!Array.isArray(payload) && payload.error && rows.length === 0) {
-          setError(payload.hint || payload.error);
-        }
         setMsgs(rows);
         setLoading(false);
       })
@@ -946,8 +944,11 @@ function DeliveryReportModal({ camp, onClose }) {
                       <td style={{ padding:"10px 12px", fontSize:11, color:C.sub, fontFamily:"monospace" }}>{msg.wa_message_id ? msg.wa_message_id.slice(0,18)+"…" : "—"}</td>
                       <td style={{ padding:"10px 12px", fontSize:11, color:C.sub, whiteSpace:"nowrap" }}>{fmtDT(msg.created_at)}</td>
                       <td style={{ padding:"10px 12px", fontSize:11, color:C.sub, whiteSpace:"nowrap" }}>{fmtDT(msg.updated_at||msg.created_at)}</td>
-                      <td style={{ padding:"10px 12px", fontSize:11, color:C.red, maxWidth:200 }}>
-                        {msg.status==="failed" ? (msg.error_detail||"Unknown error") : "—"}
+                      <td style={{ padding:"10px 12px", fontSize:11, maxWidth:220 }}>
+                        {msg.status==="failed"
+                          ? <span style={{ color:C.red, display:"block", wordBreak:"break-word" }} title={msg.error_detail||""}>{msg.error_detail ? msg.error_detail.slice(0,120)+(msg.error_detail.length>120?"…":"") : "Failed — check Vercel logs"}</span>
+                          : <span style={{ color:C.sub }}>—</span>
+                        }
                       </td>
                     </tr>
                   );
@@ -1139,30 +1140,31 @@ function CampaignSummary() {
               <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
                 <thead>
                   <tr>
-                    {["Campaign","Start Time","End Time","Sent","Delivered","Failed","Status","Report"].map(h=>(
+                    {["#","Campaign","Start Time","Sent","Delivered","Failed","Total","Status","Report"].map(h=>(
                       <th key={h} style={{ textAlign:"left", padding:"10px 12px", fontSize:11, color:C.sub, fontWeight:700, borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {searchFiltered.map(c=>(
+                  {searchFiltered.map((c,idx)=>(
                     <tr key={c.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                      <td style={{ padding:"12px", fontSize:12, color:C.sub }}>{idx+1}</td>
                       <td style={{ padding:"12px", fontWeight:600 }}>{c.name}</td>
                       <td style={{ padding:"12px", fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>{fmtDateTime(c.created_at)}</td>
-                      <td style={{ padding:"12px", fontSize:12, color:C.sub, whiteSpace:"nowrap" }}>{fmtDateTime(c.updated_at||c.created_at)}</td>
-                      <td style={{ padding:"12px", fontWeight:600 }}>{(c.sent||0).toLocaleString()}</td>
+                      <td style={{ padding:"12px", fontWeight:600, color:C.blue }}>{(c.sent||0).toLocaleString()}</td>
                       <td style={{ padding:"12px", color:C.accent, fontWeight:600 }}>{(c.delivered||0).toLocaleString()}</td>
                       <td style={{ padding:"12px", color:C.red, fontWeight:600 }}>{c.failed||0}</td>
+                      <td style={{ padding:"12px", color:C.sub }}>{(c.total||0).toLocaleString()}</td>
                       <td style={{ padding:"12px" }}><Badge status={c.status}/></td>
                       <td style={{ padding:"12px" }}>
                         <button onClick={()=>setDetailCamp(c)}
-                          style={{ ...btn("secondary"), fontSize:11, padding:"5px 10px", whiteSpace:"nowrap" }}>
+                          style={{ ...btn(), fontSize:11, padding:"5px 12px", whiteSpace:"nowrap" }}>
                           📋 Report
                         </button>
                       </td>
                     </tr>
                   ))}
-                  {searchFiltered.length===0 && <tr><td colSpan={8} style={{ padding:20, textAlign:"center", color:C.sub }}>No campaigns in this period.</td></tr>}
+                  {searchFiltered.length===0 && <tr><td colSpan={9} style={{ padding:20, textAlign:"center", color:C.sub }}>No campaigns in this period.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -1180,7 +1182,7 @@ function SendSingle() {
   const [msgType, setMsgType]         = useState("text");  // "text" | "template"
   const [msg, setMsg]                 = useState("");
   const [templateName, setTemplateName] = useState("");
-  const [langCode, setLangCode]       = useState("en_US");
+  const [langCode, setLangCode]       = useState("");
   const [status, setStatus]           = useState(null);
   const [errMsg, setErrMsg]           = useState("");
 
@@ -1197,15 +1199,17 @@ function SendSingle() {
     if (!to) return alert("Phone number is required");
     if (msgType === "text" && !msg.trim()) return alert("Message is required");
     if (msgType === "template" && !templateName) return alert("Please select a template");
-    setStatus("sending");
+    setStatus("sending"); setErrMsg("");
     try {
       let endpoint, body;
       if (msgType === "text") {
         endpoint = "/api/send-message";
         body = { to: to.replace(/\D/g,""), message: msg };
       } else {
+        // Always use language from the template object — not the default state
+        const resolvedLang = selectedTpl?.language || langCode || "en_US";
         endpoint = "/api/live-chat";
-        body = { to: to.replace(/\D/g,""), replyType:"template", templateName, languageCode: langCode };
+        body = { to: to.replace(/\D/g,""), replyType:"template", templateName, languageCode: resolvedLang };
       }
       const r = await fetch(endpoint, {
         method:"POST",
@@ -1214,7 +1218,12 @@ function SendSingle() {
       });
       const data = await r.json();
       if (r.ok) { setStatus("success"); setTo(""); setMsg(""); setTemplateName(""); }
-      else { setStatus("error"); setErrMsg(data.error?.error?.message || data.error || JSON.stringify(data)); }
+      else {
+        setStatus("error");
+        // Show the real Meta error message so it's debuggable
+        const metaMsg = data?.error?.error?.message || data?.error?.message || data?.error || JSON.stringify(data);
+        setErrMsg(metaMsg);
+      }
     } catch (e) { setStatus("error"); setErrMsg(e.message); }
   };
 
@@ -1324,7 +1333,7 @@ function CreateCampaign() {
   const [msgType, setMsgType]       = useState("text");
   const [message, setMessage]       = useState("");
   const [templateName, setTemplateName] = useState("");
-  const [templateLang, setTemplateLang] = useState("en_US");
+  const [templateLang, setTemplateLang] = useState("");  // empty until template chosen — prevents wrong lang default
   const [status, setStatus]         = useState(null);
   const [result, setResult]         = useState(null);
   const [scheduleType, setScheduleType] = useState("now");
@@ -1364,6 +1373,8 @@ function CreateCampaign() {
       if (scheduleType === "scheduled") {
         // Schedule for later via scheduled_campaigns table
         const scheduledAt = new Date(`${scheduleDate}T${scheduleTime}:00`).toISOString();
+        const selectedTemplate = templates.find(t => t.name === templateName);
+        const resolvedLang = selectedTemplate?.language || templateLang || "en_US";
         const r = await fetch("/api/campaigns/schedule", {
           method:"POST", headers:{"Content-Type":"application/json", ...waHeaders},
           body: JSON.stringify({
@@ -1371,7 +1382,7 @@ function CreateCampaign() {
             contacts: contactsPayload,
             message: msgType==="text" ? message : undefined,
             template_name: msgType==="template" ? templateName : undefined,
-            language_code: templateLang || "en_US",
+            language_code: resolvedLang,
             scheduled_at: scheduledAt,
           }),
         });
@@ -1380,6 +1391,9 @@ function CreateCampaign() {
         else { setStatus("error"); setResult({ errorDetail: data?.error || JSON.stringify(data) }); }
       } else {
         // Send immediately
+        // Always resolve language from the actual template object — never guess
+        const selectedTemplate = templates.find(t => t.name === templateName);
+        const resolvedLang = selectedTemplate?.language || templateLang || "en_US";
         const r = await fetch("/api/campaigns", {
           method:"POST", headers:{"Content-Type":"application/json", ...waHeaders},
           body: JSON.stringify({
@@ -1387,7 +1401,7 @@ function CreateCampaign() {
             contacts: contactsPayload,
             message: msgType==="text" ? message : undefined,
             template_name: msgType==="template" ? templateName : undefined,
-            language_code: templateLang || "en_US",
+            language_code: resolvedLang,
           }),
         });
         const data = await r.json();
