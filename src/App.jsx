@@ -808,14 +808,8 @@ function Contacts() {
                 onChange={e=>{ setPasteNumbers(e.target.value); setBulkResult(null); }}
                 style={{ ...inp, minHeight:140, resize:"vertical", fontFamily:"monospace", fontSize:13 }}
                 placeholder={pasteMode==="select_code"
-                  ? `9876543210
-8765432109
-7654321098
-(10-digit — +${selectedCC} added automatically)`
-                  : "919876543210
-918765432109
-917654321098
-..."}
+                  ? "9876543210\n8765432109\n7654321098"
+                  : "919876543210\n918765432109\n917654321098"}
               />
               <div style={{ fontSize:12, color:C.sub, marginTop:4, marginBottom:12 }}>
                 {pasteNumbers.split(/[\n,;]+/).filter(l=>l.trim()).length} number{pasteNumbers.split(/[\n,;]+/).filter(l=>l.trim()).length!==1?"s":""} detected
