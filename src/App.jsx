@@ -514,6 +514,8 @@ function Contacts() {
   const [form, setForm]               = useState({ name:"", phone:"", email:"", tag:"Lead" });
   const [pasteNumbers, setPasteNumbers] = useState("");
   const [bulkResult, setBulkResult]   = useState(null); // { imported, skipped }
+  const [pasteMode, setPasteMode]     = useState("with_code");   // "with_code" | "select_code"
+  const [selectedCC, setSelectedCC]   = useState("91");          // default India
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState(null);
   const fileRef = useRef();
@@ -592,9 +594,14 @@ function Contacts() {
     let imported = 0; let skipped = 0; const newIds = [];
     for (const raw of lines) {
       // strip spaces, dashes, parentheses — keep digits and leading +
-      const phone = raw.replace(/[\s\-().]/g, "");
-      if (!phone) { skipped++; continue; }
-      const name = phone; // use phone as name when no name provided
+      let digits = raw.replace(/[\s\-().+]/g, "");
+      if (!digits) { skipped++; continue; }
+      // Apply country code if mode = select_code — just prepend it
+      if (pasteMode === "select_code") {
+        digits = selectedCC + digits;
+      }
+      const phone = digits;
+      const name = phone;
       const r = await fetch("/api/contacts", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ name, phone, email:"", tag:"Lead", group_id: activeGroup }),
@@ -744,18 +751,75 @@ function Contacts() {
             </>
           ) : (
             <>
-              <h4 style={{ margin:"0 0 6px", color:C.accent2 }}>Paste Phone Numbers</h4>
-              <p style={{ margin:"0 0 12px", fontSize:13, color:C.sub }}>
-                Paste one number per line (or separated by commas/semicolons). Country code required e.g. <strong>919876543210</strong>
-              </p>
+              <h4 style={{ margin:"0 0 12px", color:C.accent2 }}>Paste Phone Numbers</h4>
+
+              {/* Radio: with code / select code */}
+              <div style={{ display:"flex", gap:16, marginBottom:14, flexWrap:"wrap" }}>
+                {[["with_code","📞 Numbers already have country code"],["select_code","🌍 Select country code (auto-prefix)"]].map(([val,label])=>(
+                  <label key={val} style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", fontSize:13, color: pasteMode===val ? C.accent2 : C.sub, fontWeight: pasteMode===val ? 700 : 400 }}>
+                    <div onClick={()=>setPasteMode(val)} style={{ width:18, height:18, borderRadius:"50%", border:`2px solid ${pasteMode===val ? C.accent : C.border}`, background: pasteMode===val ? C.accent : "transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, cursor:"pointer" }}>
+                      {pasteMode===val && <div style={{ width:8, height:8, borderRadius:"50%", background:"white" }} />}
+                    </div>
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              {/* Country code dropdown */}
+              {pasteMode==="select_code" && (
+                <div style={{ marginBottom:12 }}>
+                  <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>SELECT COUNTRY CODE</label>
+                  <select value={selectedCC} onChange={e=>setSelectedCC(e.target.value)}
+                    style={{ ...inp, marginTop:6, fontSize:13 }}>
+                    {[
+                      ["91","🇮🇳 India (+91)"],["1","🇺🇸 USA / Canada (+1)"],["44","🇬🇧 UK (+44)"],
+                      ["61","🇦🇺 Australia (+61)"],["971","🇦🇪 UAE (+971)"],["966","🇸🇦 Saudi Arabia (+966)"],
+                      ["65","🇸🇬 Singapore (+65)"],["60","🇲🇾 Malaysia (+60)"],["92","🇵🇰 Pakistan (+92)"],
+                      ["880","🇧🇩 Bangladesh (+880)"],["94","🇱🇰 Sri Lanka (+94)"],["977","🇳🇵 Nepal (+977)"],
+                      ["95","🇲🇲 Myanmar (+95)"],["66","🇹🇭 Thailand (+66)"],["62","🇮🇩 Indonesia (+62)"],
+                      ["63","🇵🇭 Philippines (+63)"],["84","🇻🇳 Vietnam (+84)"],["86","🇨🇳 China (+86)"],
+                      ["81","🇯🇵 Japan (+81)"],["82","🇰🇷 South Korea (+82)"],["27","🇿🇦 South Africa (+27)"],
+                      ["234","🇳🇬 Nigeria (+234)"],["254","🇰🇪 Kenya (+254)"],["20","🇪🇬 Egypt (+20)"],
+                      ["212","🇲🇦 Morocco (+212)"],["49","🇩🇪 Germany (+49)"],["33","🇫🇷 France (+33)"],
+                      ["39","🇮🇹 Italy (+39)"],["34","🇪🇸 Spain (+34)"],["7","🇷🇺 Russia (+7)"],
+                      ["55","🇧🇷 Brazil (+55)"],["52","🇲🇽 Mexico (+52)"],["57","🇨🇴 Colombia (+57)"],
+                      ["54","🇦🇷 Argentina (+54)"],["56","🇨🇱 Chile (+56)"],["51","🇵🇪 Peru (+51)"],
+                      ["58","🇻🇪 Venezuela (+58)"],["593","🇪🇨 Ecuador (+593)"],["591","🇧🇴 Bolivia (+591)"],
+                      ["31","🇳🇱 Netherlands (+31)"],["32","🇧🇪 Belgium (+32)"],["41","🇨🇭 Switzerland (+41)"],
+                      ["43","🇦🇹 Austria (+43)"],["48","🇵🇱 Poland (+48)"],["46","🇸🇪 Sweden (+46)"],
+                      ["47","🇳🇴 Norway (+47)"],["45","🇩🇰 Denmark (+45)"],["358","🇫🇮 Finland (+358)"],
+                      ["351","🇵🇹 Portugal (+351)"],["30","🇬🇷 Greece (+30)"],["90","🇹🇷 Turkey (+90)"],
+                      ["380","🇺🇦 Ukraine (+380)"],["98","🇮🇷 Iran (+98)"],["964","🇮🇶 Iraq (+964)"],
+                      ["962","🇯🇴 Jordan (+962)"],["961","🇱🇧 Lebanon (+961)"],["970","🇵🇸 Palestine (+970)"],
+                      ["968","🇴🇲 Oman (+968)"],["974","🇶🇦 Qatar (+974)"],["973","🇧🇭 Bahrain (+973)"],
+                      ["965","🇰🇼 Kuwait (+965)"],["967","🇾🇪 Yemen (+967)"],["64","🇳🇿 New Zealand (+64)"],
+                    ].map(([code, label])=>(
+                      <option key={code} value={code}>{label}</option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize:11, color:C.sub, marginTop:5 }}>
+                    Numbers without +{selectedCC} prefix will get it added automatically. 10-digit numbers get +{selectedCC} prepended.
+                  </div>
+                </div>
+              )}
+
               <textarea
                 value={pasteNumbers}
                 onChange={e=>{ setPasteNumbers(e.target.value); setBulkResult(null); }}
                 style={{ ...inp, minHeight:140, resize:"vertical", fontFamily:"monospace", fontSize:13 }}
-                placeholder={"919876543210\n918765432109\n917654321098\n..."}
+                placeholder={pasteMode==="select_code"
+                  ? `9876543210
+8765432109
+7654321098
+(10-digit — +${selectedCC} added automatically)`
+                  : "919876543210
+918765432109
+917654321098
+..."}
               />
               <div style={{ fontSize:12, color:C.sub, marginTop:4, marginBottom:12 }}>
                 {pasteNumbers.split(/[\n,;]+/).filter(l=>l.trim()).length} number{pasteNumbers.split(/[\n,;]+/).filter(l=>l.trim()).length!==1?"s":""} detected
+                {pasteMode==="select_code" && <span style={{ color:C.accent, marginLeft:8 }}>→ +{selectedCC} will be prefixed</span>}
               </div>
               {bulkResult && (
                 <div style={{ padding:"10px 14px", borderRadius:8, background: bulkResult.imported>0?"#f0fdf4":"#fef9c3",
