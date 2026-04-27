@@ -41,21 +41,25 @@ module.exports = async function handler(req, res) {
 
     // Shape each template for the frontend
     const templates = (data.data || []).map(t => {
-      // Build a preview string from the BODY component if present
       const bodyComponent = (t.components || []).find(c => c.type === "BODY");
       const preview = bodyComponent?.text || "";
+      // Count variables {{1}}, {{2}} etc in body
+      const varMatches = preview.match(/\{\{\d+\}\}/g) || [];
+      const variableCount = new Set(varMatches).size;
 
       return {
-        name:     t.name,
-        language: t.language,
-        category: t.category,   // MARKETING | UTILITY | AUTHENTICATION
-        status:   t.status,     // APPROVED | PENDING | REJECTED
+        name:          t.name,
+        language:      t.language,
+        category:      t.category,
+        status:        t.status,
         preview,
-        isLocal:  false,        // these are Meta templates
+        variableCount,           // how many {{n}} placeholders in body
+        hasVariables:  variableCount > 0,
+        isLocal:       false,
       };
     });
 
-    // Only return APPROVED templates so users can't accidentally select rejected ones
+    // Only return APPROVED templates
     const approved = templates.filter(t => t.status === "APPROVED");
 
     return res.status(200).json(approved);
