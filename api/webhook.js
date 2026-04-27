@@ -193,21 +193,51 @@ module.exports = async function handler(req, res) {
         }
 
         // Delivery / read status updates
-       for (const status of value.statuses || []) {
-  console.log(`[webhook] Status update: ${status.id} → ${status.status}`, JSON.stringify(status.errors || []));
-  const { data: updatedMsg } = await supabase.from("messages")
-    .update({ 
-      status: status.status,
-      error_code: status.errors?.[0]?.code ? String(status.errors[0].code) : null,
-      error_detail: status.errors?.[0]?.message || null,
-    })
-    .eq("wa_message_id", status.id)
-    .select("campaign_id")
-    .maybeSingle();
+        for (const status of value.statuses || []) {
+          console.log(`[webhook] Status update: ${status.id} → ${status.status}`);
 
-          // Increment campaign delivered count when a message is delivered
-          if (status.status === "delivered" && updatedMsg?.campaign_id) {
-            await supabase.rpc("increment_campaign_delivered", { campaign_id: updatedMsg.campaign_id });
+          // Update the message row status by wa_message_id
+          const updateFields = { status: status.status };
+          if (status.errors?.[0]?.code)    updateFields.error_code   = String(status.errors[0].code);
+          if (status.errors?.[0]?.message) updateFields.error_detail = status.errors[0].message;
+
+          const { data: updatedMsg, error: updateErr } = await supabase
+            .from("messages")
+            .update(updateFields)
+            .eq("wa_message_id", status.id)
+            .select("campaign_id, id")
+            .maybeSingle();
+
+          if (updateErr) console.error(`[webhook] Message update failed: ${updateErr.message}`);
+          if (!updatedMsg) console.warn(`[webhook] No message found for wa_message_id=${status.id}`);
+
+          // Update campaign delivered/read count directly (no RPC needed)
+          if (updatedMsg?.campaign_id) {
+            if (status.status === "delivered") {
+              // Use a direct increment via SQL expression
+              const { data: camp } = await supabase
+                .from("campaigns")
+                .select("delivered")
+                .eq("id", updatedMsg.campaign_id)
+                .single();
+              if (camp !== null) {
+                await supabase.from("campaigns")
+                  .update({ delivered: (camp.delivered || 0) + 1 })
+                  .eq("id", updatedMsg.campaign_id);
+              }
+            }
+            if (status.status === "read") {
+              const { data: camp } = await supabase
+                .from("campaigns")
+                .select("read")
+                .eq("id", updatedMsg.campaign_id)
+                .single();
+              if (camp !== null) {
+                await supabase.from("campaigns")
+                  .update({ read: (camp.read || 0) + 1 })
+                  .eq("id", updatedMsg.campaign_id);
+              }
+            }
           }
         }
       }

@@ -122,6 +122,7 @@ const NAV = [
     { id: "create-campaign",  label: "Create Campaign",     icon: "📤", sub: "Create & send messages" },
     { id: "send-single",      label: "Send Single Message", icon: "✉️", sub: "Send a message" },
     { id: "msg-log",          label: "Message Log",         icon: "🗂️", sub: "Portal & API send history" },
+    { id: "debug-panel",      label: "Debug & Diagnostics", icon: "🔧", sub: "Test DB, Meta API & templates" },
     { id: "live-chat",        label: "Live Chat",           icon: "💬", sub: "Real-time conversations" },
     { id: "auto-responder",   label: "Auto-Responder",      icon: "🔄", sub: "Reply 24/7 automatically" },
     { id: "chatbot",          label: "ChatBot",             icon: "🤖", sub: "Automated conversation" },
@@ -874,6 +875,7 @@ function DeliveryReportModal({ camp, onClose }) {
             <div style={{ fontSize:12, color:C.sub, marginTop:3 }}>{fmtDT(camp.created_at)} → {fmtDT(camp.updated_at||camp.created_at)}</div>
           </div>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            <button onClick={loadMsgs} style={{ ...btn("secondary"), fontSize:12, padding:"7px 13px" }}>🔄 Refresh</button>
             <button onClick={downloadCSV} style={{ ...btn("secondary"), fontSize:12, padding:"7px 13px" }}>⬇️ Export CSV</button>
             <button onClick={onClose} style={{ background:"transparent", border:"none", color:C.sub, fontSize:20, cursor:"pointer", lineHeight:1 }}>✕</button>
           </div>
@@ -912,13 +914,21 @@ function DeliveryReportModal({ camp, onClose }) {
                 {filtered.length === 0 && (
                   <tr><td colSpan={10} style={{ padding:30, textAlign:"center", fontSize:13 }}>
                     {msgs.length === 0 ? (
-                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
-                        <div style={{ color:C.sub }}>No messages linked to this campaign yet.</div>
-                        <div style={{ color:C.sub, fontSize:12 }}>Messages sent before tracking was set up may not have <code>campaign_id</code> saved. Click below to auto-link them by send time.</div>
-                        <button onClick={doBackfill} disabled={backfilling || backfillDone}
-                          style={{ ...btn(), fontSize:13, padding:"8px 20px", marginTop:4 }}>
-                          {backfilling ? "⏳ Linking..." : backfillDone ? "✅ Done — reloading..." : "🔗 Link Messages to This Campaign"}
-                        </button>
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
+                        <div style={{ fontSize:15 }}>📭</div>
+                        <div style={{ color:C.sub, fontWeight:600 }}>No message records found for this campaign</div>
+                        <div style={{ color:C.sub, fontSize:12, maxWidth:480, textAlign:"center", lineHeight:1.6 }}>
+                          This campaign was sent before per-number tracking was set up. The <code>campaign_id</code> column was missing from the messages table when this was sent, so rows were saved without it.
+                          <br/><br/>
+                          <strong style={{color:C.text}}>Run this SQL in Supabase → SQL Editor, then click 🔄 Refresh:</strong>
+                        </div>
+                        <pre style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", fontSize:11, color:C.accent2, textAlign:"left", maxWidth:560, overflowX:"auto", margin:0 }}>{`ALTER TABLE messages ADD COLUMN IF NOT EXISTS campaign_id TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS direction TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_message_id TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS contact_name TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS error_detail TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS source TEXT;`}</pre>
+                        <div style={{ color:C.sub, fontSize:12 }}>After running the SQL, new campaigns will automatically save per-number status. Old campaigns cannot be recovered.</div>
                       </div>
                     ) : (
                       <span style={{ color:C.sub }}>No results match your filter.</span>
@@ -5354,6 +5364,116 @@ function CustomerAccounts() {
   return null;
 }
 
+// ─── DEBUG PANEL ─────────────────────────────────────────────────────────────
+function DebugPanel() {
+  const [report, setReport]   = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [testTpl, setTestTpl] = useState("");
+  const [testLang, setTestLang] = useState("en_US");
+  const [testTo, setTestTo]   = useState("");
+  const { templates } = useAllTemplates();
+
+  const runDiag = async () => {
+    setLoading(true); setReport(null);
+    try {
+      const r = await fetch("/api/debug", { headers: getWAHeaders() });
+      setReport(await r.json());
+    } catch(e) { setReport({ error: e.message }); }
+    setLoading(false);
+  };
+
+  const testSend = async () => {
+    if (!testTpl || !testTo) return alert("Enter phone number and select template");
+    setLoading(true);
+    try {
+      const selectedTpl = templates.find(t => t.name === testTpl);
+      const lang = selectedTpl?.language || testLang || "en_US";
+      const r = await fetch("/api/debug", {
+        method: "POST",
+        headers: { ...getWAHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ template_name: testTpl, language_code: lang, to: testTo }),
+      });
+      const d = await r.json();
+      setReport(prev => ({ ...(prev||{}), tests: { ...(prev?.tests||{}), template_send_test: d.tests?.template_send_test } }));
+    } catch(e) { alert(e.message); }
+    setLoading(false);
+  };
+
+  const statusColor = s => s === "OK" ? C.accent : s === "FAIL" || s === "FAIL_ALL" ? C.red : C.yellow;
+
+  return (
+    <div>
+      <h2 style={{ margin:"0 0 4px", fontSize:18, fontWeight:800 }}>🔧 Debug & Diagnostics</h2>
+      <p style={{ margin:"0 0 18px", fontSize:13, color:C.sub }}>Run this to find the exact cause of template failures and DB issues. Does not send any messages unless you use the Template Send Test below.</p>
+
+      <button onClick={runDiag} disabled={loading} style={{ ...btn(), marginBottom:20 }}>
+        {loading ? "⏳ Running..." : "▶️ Run Full Diagnostics"}
+      </button>
+
+      {report && (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {/* Each test result */}
+          {Object.entries(report.tests || {}).map(([key, val]) => (
+            <div key={key} style={{ ...card, padding:"14px 16px" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <span style={{ fontWeight:700, fontSize:13, textTransform:"uppercase", letterSpacing:0.5 }}>{key.replace(/_/g," ")}</span>
+                <span style={{ fontWeight:700, fontSize:12, color: statusColor(val?.status), background: statusColor(val?.status)+"20", padding:"2px 10px", borderRadius:20 }}>{val?.status || "—"}</span>
+              </div>
+              <pre style={{ margin:0, fontSize:11, color:C.sub, whiteSpace:"pre-wrap", wordBreak:"break-all", background:C.bg, padding:10, borderRadius:8, maxHeight:300, overflowY:"auto" }}>
+                {JSON.stringify(val, null, 2)}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Template send test */}
+      <div style={{ ...card, marginTop:20 }}>
+        <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:700 }}>🧪 Template Send Test (single number, no DB save)</h3>
+        <p style={{ margin:"0 0 12px", fontSize:12, color:C.sub }}>Test exactly what Meta returns for a specific template + number. Use this to find the exact error without wasting campaign budget.</p>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          <div>
+            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>PHONE NUMBER (with country code)</label>
+            <input value={testTo} onChange={e=>setTestTo(e.target.value)} placeholder="919876543210" style={{ ...inp, marginTop:4 }} />
+          </div>
+          <div>
+            <label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TEMPLATE</label>
+            <select value={testTpl} onChange={e=>{ const t=templates.find(x=>x.name===e.target.value); setTestTpl(e.target.value); if(t) setTestLang(t.language||"en_US"); }} style={{ ...inp, marginTop:4 }}>
+              <option value="">— Select template —</option>
+              {templates.filter(t=>!t.isLocal).map(t=>(
+                <option key={`${t.name}_${t.language}`} value={t.name}>{t.name} ({t.language})</option>
+              ))}
+            </select>
+          </div>
+          {testTpl && <div style={{ fontSize:12, color:C.sub }}>Language that will be sent: <strong style={{color:C.text}}>{templates.find(t=>t.name===testTpl)?.language || testLang}</strong></div>}
+          <button onClick={testSend} disabled={loading || !testTpl || !testTo} style={{ ...btn(), alignSelf:"flex-start" }}>
+            🚀 Test This Template
+          </button>
+          {report?.tests?.template_send_test && (
+            <div style={{ background: report.tests.template_send_test.result==="SUCCESS" ? C.accentLight : "#2d1015", border:`1px solid ${report.tests.template_send_test.result==="SUCCESS" ? C.accent : C.red}`, borderRadius:10, padding:14 }}>
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:8, color: report.tests.template_send_test.result==="SUCCESS" ? C.accent2 : C.red }}>
+                {report.tests.template_send_test.result==="SUCCESS" ? "✅ Template sent successfully!" : "❌ Template FAILED"}
+              </div>
+              {report.tests.template_send_test.meta_error && (
+                <div style={{ fontSize:13, color:C.red, marginBottom:8 }}>
+                  <strong>Error:</strong> {report.tests.template_send_test.meta_error.message}<br/>
+                  <strong>Code:</strong> {report.tests.template_send_test.meta_error.code}<br/>
+                  {report.tests.template_send_test.meta_error.error_data?.details && (
+                    <><strong>Details:</strong> {report.tests.template_send_test.meta_error.error_data.details}</>
+                  )}
+                </div>
+              )}
+              <pre style={{ fontSize:11, color:C.sub, background:C.bg, padding:10, borderRadius:8, whiteSpace:"pre-wrap", margin:0 }}>
+                {JSON.stringify(report.tests.template_send_test, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PageContent({ page }) {
   const map = {
     "dashboard":        <Dashboard />,
@@ -5377,6 +5497,7 @@ function PageContent({ page }) {
     "customers":        <CustomerAccounts />,
     "users-list":       <UsersList />,
     "wa-group":         <Contacts />,
+    "debug-panel":      <DebugPanel />,
   };
   return map[page] || <Dashboard />;
 }

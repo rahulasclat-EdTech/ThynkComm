@@ -33,51 +33,86 @@ async function sendOne(toNorm, payload, token, phoneId) {
   const ok = r.ok || hasMessageId;
 
   if (!r.ok && !hasMessageId) {
-    console.error(`[campaigns] Meta rejected ${toNorm}:`, JSON.stringify(rData?.error));
+    // Log the FULL error so it appears in Vercel logs for debugging
+    console.error(`[campaigns] Meta REJECTED ${toNorm} — HTTP ${r.status}:`, JSON.stringify(rData));
   } else if (!r.ok && hasMessageId) {
-    console.warn(`[campaigns] Meta returned non-2xx but message queued for ${toNorm} — treating as sent`);
+    console.warn(`[campaigns] Meta non-2xx but queued for ${toNorm}:`, JSON.stringify(rData));
   }
   return { ok, rData };
 }
 
-// ── Safe insert: tries full row first, then progressively strips columns ──────
-// This handles any Supabase schema — works even if optional columns are missing.
+// ── Schema cache: detected once per cold start ───────────────────────────────
+let _schemaColumns = null; // null = not yet detected
+
+async function getMessageColumns() {
+  if (_schemaColumns) return _schemaColumns;
+  // Fetch one row to see what columns exist. If table is empty, use information_schema.
+  const { data, error } = await supabase.from("messages").select("*").limit(1);
+  if (!error && data) {
+    if (data.length > 0) {
+      _schemaColumns = new Set(Object.keys(data[0]));
+    } else {
+      // Table exists but empty — assume full schema since user just ran migrations
+      _schemaColumns = new Set(["id","to_number","from_number","body","status","direction",
+        "source","campaign_id","contact_name","template_name","wa_message_id",
+        "error_detail","error_code","tag","created_at","updated_at"]);
+    }
+    console.log(`[campaigns] Schema detected: ${[..._schemaColumns].join(", ")}`);
+  } else {
+    // Can't detect — use minimal safe set
+    console.warn(`[campaigns] Schema detection failed: ${error?.message} — using minimal columns`);
+    _schemaColumns = new Set(["to_number","body","status","direction"]);
+  }
+  return _schemaColumns;
+}
+
 async function safeInsertMessage(row) {
-  // Attempt 1: full row
-  const { error: e1 } = await supabase.from("messages").insert([row]);
-  if (!e1) { console.log(`[campaigns] Insert OK for ${row.to_number}`); return; }
-  console.warn(`[campaigns] Insert attempt 1 failed: ${e1.message}`);
+  const cols = await getMessageColumns();
 
-  // Attempt 2: strip error_detail (column may not exist)
-  const { error_detail, ...row2 } = row;
-  const { error: e2 } = await supabase.from("messages").insert([row2]);
-  if (!e2) { console.log(`[campaigns] Insert OK (no error_detail) for ${row.to_number}`); return; }
-  console.warn(`[campaigns] Insert attempt 2 failed: ${e2.message}`);
+  // Build insert row using ONLY columns that exist in the schema
+  // CRITICAL: campaign_id is ALWAYS included if the column exists — never strip it
+  const safeRow = {};
+  for (const [key, val] of Object.entries(row)) {
+    if (cols.has(key)) safeRow[key] = val;
+  }
 
-  // Attempt 3: strip source too
-  const { source, ...row3 } = row2;
-  const { error: e3 } = await supabase.from("messages").insert([row3]);
-  if (!e3) { console.log(`[campaigns] Insert OK (no source) for ${row.to_number}`); return; }
-  console.warn(`[campaigns] Insert attempt 3 failed: ${e3.message}`);
+  const { error } = await supabase.from("messages").insert([safeRow]);
+  if (!error) {
+    console.log(`[campaigns] Insert OK for ${row.to_number} (cols: ${Object.keys(safeRow).join(",")})`);
+    return;
+  }
 
-  // Attempt 4: strip campaign_id too
-  const { campaign_id, ...row4 } = row3;
-  const { error: e4 } = await supabase.from("messages").insert([row4]);
-  if (!e4) { console.log(`[campaigns] Insert OK (no campaign_id) for ${row.to_number}`); return; }
-  console.warn(`[campaigns] Insert attempt 4 failed: ${e4.message}`);
+  // Insert failed — if it was a column error, reset schema cache and retry once
+  const isColumnError = error.message?.includes("column") || error.code === "42703" || error.code === "PGRST204";
+  if (isColumnError) {
+    console.warn(`[campaigns] Column error — resetting schema cache and retrying: ${error.message}`);
+    _schemaColumns = null;
+    const freshCols = await getMessageColumns();
+    const retryRow = {};
+    for (const [key, val] of Object.entries(row)) {
+      if (freshCols.has(key)) retryRow[key] = val;
+    }
+    const { error: e2 } = await supabase.from("messages").insert([retryRow]);
+    if (!e2) {
+      console.log(`[campaigns] Retry insert OK for ${row.to_number}`);
+      return;
+    }
+    console.error(`[campaigns] Retry failed: ${e2.message}`);
+  }
 
-  // Attempt 5: bare minimum — to_number, body, status, direction only
-  const { error: e5 } = await supabase.from("messages").insert([{
-    to_number: row.to_number,
-    body:      row.body,
-    status:    row.status,
-    direction: row.direction,
+  // Last resort: absolute bare minimum — these 4 columns exist in every schema
+  const { error: eMin } = await supabase.from("messages").insert([{
+    to_number:   row.to_number,
+    body:        row.body,
+    status:      row.status,
+    direction:   row.direction || "outbound",
   }]);
-  if (!e5) { console.log(`[campaigns] Insert OK (bare minimum) for ${row.to_number}`); return; }
-
-  // All attempts failed — log everything for debugging
-  console.error(`[campaigns] ALL INSERT ATTEMPTS FAILED for ${row.to_number}. Final error: ${e5.message}`);
-  console.error(`[campaigns] Row attempted:`, JSON.stringify(row));
+  if (!eMin) {
+    // Saved but WITHOUT campaign_id — log this prominently so it shows in Vercel logs
+    console.error(`[campaigns] ⚠️ SAVED WITHOUT campaign_id for ${row.to_number}. campaign_id column missing! Run SQL: ALTER TABLE messages ADD COLUMN IF NOT EXISTS campaign_id TEXT;`);
+    return;
+  }
+  console.error(`[campaigns] ALL INSERTS FAILED for ${row.to_number}. Error: ${eMin.message}. Row: ${JSON.stringify(row)}`);
 }
 
 module.exports = async function handler(req, res) {
@@ -93,79 +128,86 @@ module.exports = async function handler(req, res) {
     if (campaignId) {
       console.log(`[campaigns] Fetching messages for campaign ${campaignId}`);
 
-      // Primary: fetch by campaign_id (with OR for direction null — old rows may not have direction set)
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("campaign_id", campaignId)
-        .or("direction.eq.outbound,direction.is.null")
-        .order("created_at", { ascending: true });
+      // ── Step 1: Always fetch campaign metadata first ───────────────────────
+      const { data: campData, error: campErr } = await supabase
+        .from("campaigns")
+        .select("created_at, updated_at, sent, total, name")
+        .eq("id", campaignId)
+        .single();
 
-      if (error) {
-        console.error(`[campaigns] GET messages error: ${error.message}`);
-        // columns missing — try bare query without campaign_id filter as last resort
-        const { data: bare } = await supabase
-          .from("messages")
-          .select("to_number, body, status, created_at")
-          .order("created_at", { ascending: false })
-          .limit(1);
-        return res.status(200).json({ 
-          rows: [], 
-          error: error.message,
-          hint: "campaign_id column may be missing. Run in Supabase SQL editor: ALTER TABLE messages ADD COLUMN IF NOT EXISTS campaign_id TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS direction TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS source TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS contact_name TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS template_name TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_message_id TEXT; ALTER TABLE messages ADD COLUMN IF NOT EXISTS error_detail TEXT;"
-        });
+      if (campErr || !campData) {
+        console.error(`[campaigns] Campaign ${campaignId} not found`);
+        return res.status(200).json([]);
       }
 
-      // If no rows found by campaign_id, fall back to time-window match
-      // (handles rows saved by old code where campaign_id was null/not set)
-      if (!data || data.length === 0) {
-        console.log(`[campaigns] No rows by campaign_id, trying time-window fallback`);
-        const { data: campData } = await supabase
-          .from("campaigns")
-          .select("created_at, updated_at, sent, total")
-          .eq("id", campaignId)
-          .single();
+      // ── Step 2: Try fetching by campaign_id column (new campaigns) ────────
+      const { data: byId, error: idErr } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("campaign_id", String(campaignId))
+        .order("created_at", { ascending: true });
 
-        if (campData) {
-          const from = campData.created_at;
-          // Use a wider window: campaign duration + 10 min buffer
-          const to = campData.updated_at
-            ? new Date(new Date(campData.updated_at).getTime() + 10 * 60000).toISOString()
-            : new Date(new Date(from).getTime() + 30 * 60000).toISOString();
+      if (!idErr && byId && byId.length > 0) {
+        console.log(`[campaigns] Found ${byId.length} rows by campaign_id`);
+        return res.status(200).json(byId);
+      }
 
-          // Try with direction filter first
-          const { data: fallback } = await supabase
-            .from("messages")
-            .select("*")
-            .or("direction.eq.outbound,direction.is.null")
-            .gte("created_at", from)
-            .lte("created_at", to)
-            .order("created_at", { ascending: true })
-            .limit(campData.total || 500);
+      // campaign_id column exists but 0 rows — old messages need backfill
+      // campaign_id column missing — fall back to time window
+      if (idErr) console.warn(`[campaigns] campaign_id query error: ${idErr.message} — using time window`);
+      else console.log(`[campaigns] 0 rows by campaign_id — using time window`);
 
-          if (fallback?.length > 0) {
-            console.log(`[campaigns] Time-window fallback found ${fallback.length} rows`);
-            return res.status(200).json(fallback);
-          }
+      // ── Step 3: Time-window query scoped to this campaign's contacts ───────
+      // Use campaign total count to limit results so we don't bleed into
+      // adjacent campaigns that ran at similar times
+      const timeFrom  = campData.created_at;
+      const rawTo     = campData.updated_at || campData.created_at;
+      // Add 5 min buffer but cap at campaign total+10 to avoid overlap
+      const timeTo    = new Date(new Date(rawTo).getTime() + 5 * 60000).toISOString();
+      const rowLimit  = Math.max((campData.total || 10) + 10, 20);
 
-          // Last resort: no direction filter, pure time window
-          const { data: fallback2 } = await supabase
-            .from("messages")
-            .select("*")
-            .gte("created_at", from)
-            .lte("created_at", to)
-            .order("created_at", { ascending: true })
-            .limit(campData.total || 500);
+      const { data: byTime, error: timeErr } = await supabase
+        .from("messages")
+        .select("*")
+        .gte("created_at", timeFrom)
+        .lte("created_at", timeTo)
+        .order("created_at", { ascending: true })
+        .limit(rowLimit);
 
-          if (fallback2?.length > 0) {
-            console.log(`[campaigns] Time-window fallback2 (no direction) found ${fallback2.length} rows`);
-            return res.status(200).json(fallback2);
-          }
+      if (timeErr) {
+        // select * failed — try safe minimal columns (schema missing extras)
+        const { data: minimal, error: minErr } = await supabase
+          .from("messages")
+          .select("id, to_number, body, status, created_at")
+          .gte("created_at", timeFrom)
+          .lte("created_at", timeTo)
+          .order("created_at", { ascending: true })
+          .limit(rowLimit);
+
+        if (minErr) {
+          console.error(`[campaigns] All queries failed: ${minErr.message}`);
+          return res.status(200).json([]);
+        }
+        console.log(`[campaigns] Time-window minimal found ${minimal.length} rows`);
+        return res.status(200).json(minimal || []);
+      }
+
+      const rows = byTime || [];
+      console.log(`[campaigns] Time-window found ${rows.length} rows`);
+
+      // ── Step 4: Silently backfill campaign_id so webhook updates work ──────
+      if (rows.length > 0 && !idErr) {
+        const toFix = rows.filter(m => !m.campaign_id).map(m => m.id).filter(Boolean);
+        if (toFix.length > 0) {
+          supabase.from("messages")
+            .update({ campaign_id: String(campaignId), direction: "outbound" })
+            .in("id", toFix)
+            .then(() => console.log(`[campaigns] Backfilled ${toFix.length} rows with campaign_id`))
+            .catch(() => {});
         }
       }
 
-      console.log(`[campaigns] Found ${data?.length || 0} messages for campaign ${campaignId}`);
-      return res.status(200).json(data || []);
+      return res.status(200).json(rows);
     }
 
     const { data, error } = await supabase
@@ -197,31 +239,6 @@ module.exports = async function handler(req, res) {
     const phoneId = req.headers["x-wa-phone-id"] || process.env.PHONE_NUMBER_ID;
     if (!token || !phoneId)
       return res.status(400).json({ error: "WhatsApp credentials missing." });
-
-    // ── Probe messages table columns once before we start ─────────────────
-    // Insert a dry-run probe row to discover which columns exist.
-    // We intentionally use a dummy campaign_id=null and delete it after.
-    // This tells us the exact schema so safeInsertMessage can skip columns upfront.
-    const probeRow = {
-      to_number:     "0000000000",
-      body:          "__probe__",
-      status:        "failed",
-      direction:     "outbound",
-      source:        "portal",
-      campaign_id:   null,
-      contact_name:  null,
-      template_name: null,
-      wa_message_id: null,
-      error_detail:  null,
-    };
-    const { error: probeErr } = await supabase.from("messages").insert([probeRow]);
-    if (probeErr) {
-      console.warn(`[campaigns] Schema probe failed: ${probeErr.message}`);
-    } else {
-      // Clean up probe row immediately
-      await supabase.from("messages").delete().eq("to_number", "0000000000").eq("body", "__probe__");
-      console.log(`[campaigns] Schema probe passed — all columns exist`);
-    }
 
     // Create campaign record
     const { data: campaign, error: campErr } = await supabase
@@ -271,9 +288,12 @@ module.exports = async function handler(req, res) {
           }
 
           const { ok, rData } = await sendOne(toNorm, payload, token, phoneId);
+          // Meta error can be at rData.error.message or rData.error.error_data.details
+          const metaErr = rData?.error || {};
           const metaErrMsg = !ok
-            ? (rData?.error?.message || rData?.error?.error_data?.details || "Meta API error")
+            ? (metaErr.error_data?.details || metaErr.message || JSON.stringify(metaErr) || "Meta API error")
             : null;
+          if (!ok) console.error(`[campaigns] Failed for ${toNorm}: ${metaErrMsg}`);
 
           await safeInsertMessage({
             to_number:     toNorm,
