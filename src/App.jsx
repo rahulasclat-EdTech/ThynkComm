@@ -1153,12 +1153,15 @@ function CampaignSummary() {
   const [customTo, setCustomTo]     = useState("");
   const [detailCamp, setDetailCamp] = useState(null);
 
-  useEffect(() => {
+  const loadCampaigns = () => {
+    setLoading(true);
     fetch("/api/campaigns", { headers: getWAHeaders() })
       .then(r=>r.json())
       .then(data=>{ setCampaigns(Array.isArray(data)?data:[]); setLoading(false); })
       .catch(()=>setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadCampaigns(); }, []);
 
   const fmtDateTime = fmtIST;
 
@@ -1227,7 +1230,10 @@ function CampaignSummary() {
     <div>
       {detailCamp && <DeliveryReportModal camp={detailCamp} onClose={()=>setDetailCamp(null)} />}
 
-      <h2 style={{ margin:"0 0 18px", fontSize:18, fontWeight:800 }}>Campaign Summary</h2>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <h2 style={{ margin:0, fontSize:18, fontWeight:800 }}>Campaign Summary</h2>
+        <button onClick={loadCampaigns} style={{ ...btn("secondary"), fontSize:12, padding:"7px 14px" }}>🔄 Refresh</button>
+      </div>
 
       <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
         {periodTabs.map(t=>(
@@ -1250,7 +1256,7 @@ function CampaignSummary() {
         )}
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:12, marginBottom:20 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:12, marginBottom:8 }}>
         <Stat icon="🚀" label="Campaigns"  value={pStats.total} />
         <Stat icon="✅" label="Completed"  value={pStats.completed} color={C.accent} />
         <Stat icon="👥" label="Recipients" value={pStats.total_contacts.toLocaleString()} color={C.blue} />
@@ -1259,6 +1265,7 @@ function CampaignSummary() {
         <Stat icon="❌" label="Failed"     value={pStats.failed.toLocaleString()} color={C.red} />
         <Stat icon="📈" label="Delivery %" value={`${deliveryRate}%`} color={deliveryRate>80?C.accent:deliveryRate>50?C.yellow:C.red} />
       </div>
+      <div style={{ fontSize:11, color:C.sub, marginBottom:20 }}>💡 Delivered &amp; Read counts update via webhook — click Refresh or open 📋 Report for real-time per-campaign breakdown.</div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:16 }}>
 
@@ -1283,7 +1290,7 @@ function CampaignSummary() {
                           <span style={{ flex:"1 1 160px", fontWeight:600, fontSize:13 }}>{c.name}</span>
                           <div style={{ display:"flex", gap:8, fontSize:12, flexWrap:"wrap" }}>
                             <span style={{ color:C.blue }}>📤 {(c.sent||0).toLocaleString()}</span>
-                            <span style={{ color:C.accent }}>📨 {(c.delivered||0).toLocaleString()}</span>
+                            <span style={{ color:C.accent }}>📨 {(c.delivered||0) > 0 ? (c.delivered||0).toLocaleString() : <span style={{color:C.sub}}>—</span>}</span>
                             <span style={{ color:C.red }}>❌ {c.failed||0}</span>
                           </div>
                           <Badge status={c.status} />
@@ -1629,7 +1636,7 @@ function CreateCampaign() {
                     )}
                   </>);
                 })()}</div>{templateName && (<div style={{ fontSize:12, color:C.sub, marginTop:4 }}>🌐 Language: <strong style={{ color:C.text }}>{templateLang}</strong> <span style={{ color:C.sub }}>(auto-detected)</span></div>)}</div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(1)}>← Back</button><button style={btn()} onClick={()=>setStep(3)}>Continue →</button></div></div>)}
-      {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"flex", flexDirection:"column", gap:10 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13 }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>(<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:C.card, color:C.text }}><div style={{ fontWeight:700, color:C.text }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{(g.contactIds||[]).filter(id => contacts.some(c => c.id === id)).length} contacts</div></div>))}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
+      {step===3 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Select Contact Group</h3><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(160px, 1fr))", gap:12 }}>{groups.length===0?<div style={{ color:C.sub, fontSize:13, gridColumn:"1/-1" }}>No groups yet. Go to Contacts to create a group first.</div>:groups.map(g=>{ const cnt=(g.contactIds||[]).filter(id=>contacts.some(c=>c.id===id)).length; return (<div key={g.id} onClick={()=>setSelectedGroup(g.id)} style={{ padding:"16px 14px", borderRadius:12, border:`2px solid ${selectedGroup===g.id?C.accent:C.border}`, cursor:"pointer", background:selectedGroup===g.id?C.accentLight:C.card, color:C.text, display:"flex", flexDirection:"column", gap:6, minHeight:80 }}><div style={{ fontWeight:700, fontSize:14, color:C.text, lineHeight:1.3 }}>{g.name}</div><div style={{ fontSize:12, color:C.sub }}>{cnt} contact{cnt!==1?"s":""}</div>{selectedGroup===g.id&&<div style={{ fontSize:11, color:C.accent2, fontWeight:700, marginTop:"auto" }}>✓ Selected</div>}</div>); })}</div><div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(2)}>← Back</button><button style={btn()} onClick={()=>{ if(!selectedGroup) return alert("Select a group"); setStep(4); }}>Continue →</button></div></div>)}
       {step===4 && (<div style={card}><h3 style={{ margin:"0 0 14px", fontSize:15, fontWeight:700 }}>Schedule</h3><div style={{ display:"flex", gap:10, marginBottom:18 }}>{[["now","⚡ Send Now"],["scheduled","📅 Schedule Later"]].map(([val,label])=>(<button key={val} onClick={()=>setScheduleType(val)} style={{ ...btn(scheduleType===val?"primary":"secondary"), fontSize:13 }}>{label}</button>))}</div>{scheduleType==="scheduled"&&(<div style={{ display:"flex", flexDirection:"column", gap:12 }}><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>DATE *</label><input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={e=>setScheduleDate(e.target.value)} style={{ ...inp, marginTop:6 }} /></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIME *</label><input type="time" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} style={{ ...inp, marginTop:6 }} /></div></div><div><label style={{ fontSize:12, color:C.sub, fontWeight:700 }}>TIMEZONE</label><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)} style={{ ...inp, marginTop:6 }}><option value="Asia/Kolkata">India (IST) UTC+5:30</option><option value="Asia/Dubai">Dubai (GST) UTC+4</option><option value="Europe/London">London (GMT) UTC+0</option><option value="America/New_York">New York (ET) UTC-5</option></select></div></div>)}<div style={{ display:"flex", gap:10, marginTop:16 }}><button style={btn("secondary")} onClick={()=>setStep(3)}>← Back</button><button style={btn()} onClick={()=>setStep(5)}>Continue →</button></div></div>)}
       {step===5 && (<div style={card}><h3 style={{ margin:"0 0 16px", fontSize:15, fontWeight:700 }}>Review & Send</h3><div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>{[["Campaign Name",campaignName],["Message Type",msgType==="template"?`Template: ${templateName}` : "Custom Text"],["Contact Group",currentGroup?.name||"—"],["Recipients",`${groupContacts.length} opted-in contacts`],["Schedule",scheduleType==="now"?"⚡ Send Now":`📅 ${scheduleDate} at ${scheduleTime}`]].map(([label,value])=>(<div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", background:C.bg, borderRadius:9 }}><span style={{ color:C.sub, fontSize:13 }}>{label}</span><span style={{ fontWeight:700, fontSize:13 }}>{value}</span></div>))}{msgType==="text"&&(<div style={{ padding:"10px 14px", background:C.bg, borderRadius:9 }}><div style={{ color:C.sub, fontSize:13, marginBottom:4 }}>Message Preview</div><div style={{ fontSize:13, whiteSpace:"pre-wrap" }}>{message}</div></div>)}</div>{status==="success"&&result&&(<div style={{ background:C.accentLight, border:`1px solid ${C.accent}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontWeight:700, color:C.accent2, marginBottom:4 }}>✅ Campaign Sent!</div><div style={{ fontSize:13, color:C.sub }}>Sent: {result.sent} | Failed: {result.failed}</div></div>)}{status==="error"&&<ErrorBox msg={result?.errorDetail || "Something went wrong. Check API credentials."} />}<div style={{ display:"flex", gap:10 }}><button style={btn("secondary")} onClick={()=>setStep(4)}>← Back</button><button style={{ ...btn(), minWidth:180 }} onClick={send} disabled={status==="sending"}>{status==="sending"?"⏳ Sending...":"🚀 Launch Campaign"}</button></div></div>)}
     </div>
