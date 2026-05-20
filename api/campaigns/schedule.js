@@ -1,7 +1,4 @@
 // api/campaigns/schedule.js
-// Handles POST /api/campaigns/schedule — saves a campaign to scheduled_campaigns table
-// cron-send.js picks it up and fires it at the scheduled time.
-
 const { createClient } = require("@supabase/supabase-js");
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -13,12 +10,11 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-wa-token, x-wa-phone-id, x-wa-waba-id");
   if (req.method === "OPTIONS") return res.status(200).end();
-
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const {
     name,
-    contacts,
+    contacts,        // full contact objects [{id, phone, name}]
     message,
     template_name,
     language_code,
@@ -37,11 +33,15 @@ module.exports = async function handler(req, res) {
   if (!token || !phoneId)
     return res.status(400).json({ error: "WhatsApp credentials missing." });
 
+  // contact_ids = array of id strings (matches existing ARRAY column)
+  const contact_ids = contacts.map(c => String(c.id));
+
   const { data, error } = await supabase
     .from("scheduled_campaigns")
     .insert([{
       name,
-      contacts: JSON.stringify(contacts),
+      contact_ids,                                          // ARRAY column
+      contacts:        JSON.stringify(contacts),            // full objects for cron-send
       message:         message || null,
       template_name:   template_name || null,
       language_code:   language_code || "en_US",
@@ -60,6 +60,6 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: error.message });
   }
 
-  console.log(`[campaigns/schedule] Scheduled campaign "${name}" id=${data.id} at ${scheduled_at}`);
+  console.log(`[campaigns/schedule] Scheduled "${name}" id=${data.id} at ${scheduled_at} for ${contacts.length} contacts`);
   return res.status(200).json({ success: true, scheduledId: data.id, scheduled_at });
 };
