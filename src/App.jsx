@@ -222,6 +222,12 @@ const NAV = [
     { id: "customers",    label: "Customer Accounts",   icon: "🏢", sub: "Manage client accounts" },
     { id: "users-list",   label: "Users List",          icon: "👤", sub: "See your users list" },
   ]},
+  { section: "RCS", items: [
+    { id: "rcs-account",   label: "RCS Account",   icon: "💬", sub: "Google RBM setup" },
+    { id: "rcs-templates", label: "RCS Templates",  icon: "🃏", sub: "Manage RCS templates" },
+    { id: "rcs-campaign",  label: "RCS Campaign",   icon: "📡", sub: "Bulk RCS messages" },
+    { id: "rcs-inbox",     label: "RCS Inbox",      icon: "📥", sub: "Inbound replies & log" },
+  ]},
 ];
 
 const scColor = {
@@ -5882,6 +5888,310 @@ function ThemeSwitcher() {
   );
 }
 
+// ─── RCS MODULE ───────────────────────────────────────────────────────────────
+// Separate from all WhatsApp code. Uses Google RBM API (Path A — direct).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RCSAccount() {
+  const [agentId,  setAgentId]  = useState(() => localStorage.getItem("rcs_agent_id")  || "");
+  const [saJson,   setSaJson]   = useState(() => localStorage.getItem("rcs_sa_json")   || "");
+  const [webhookToken, setWebhookToken] = useState(() => localStorage.getItem("rcs_webhook_token") || "");
+  const [status,   setStatus]   = useState(null);
+  const [msg,      setMsg]      = useState("");
+  const [saving,   setSaving]   = useState(false);
+  const handleTest = async () => {
+    if (!agentId || !saJson) { setStatus("error"); setMsg("Fill in Agent ID and Service Account JSON first."); return; }
+    setStatus("testing"); setMsg("Contacting Google RBM API…");
+    try {
+      const r = await fetch("/api/rcs-config", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ agent_id: agentId, service_account_json: saJson }) });
+      const d = await r.json();
+      if (d.valid) { setStatus("ok"); setMsg(`✅ Connected — Agent: ${d.agent_name}`); }
+      else         { setStatus("error"); setMsg(d.error || "Connection failed"); }
+    } catch (e) { setStatus("error"); setMsg(e.message); }
+  };
+  const handleSave = () => {
+    setSaving(true);
+    localStorage.setItem("rcs_agent_id", agentId);
+    localStorage.setItem("rcs_sa_json", saJson);
+    localStorage.setItem("rcs_webhook_token", webhookToken);
+    setTimeout(() => { setSaving(false); setMsg("✅ Saved to browser storage."); }, 400);
+  };
+  const label = { fontSize:13, fontWeight:600, color:C.sub, marginBottom:6, display:"block" };
+  const ta    = { ...inp, minHeight:110, resize:"vertical", fontFamily:"monospace", fontSize:12 };
+  return (
+    <div style={{ maxWidth:780 }}>
+      <div style={{ ...card, marginBottom:24, background:"linear-gradient(135deg,#4285f430,#34a85320)", border:"1px solid #4285f440" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+          <div style={{ width:48, height:48, borderRadius:14, background:"linear-gradient(135deg,#4285f4,#34a853)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>💬</div>
+          <div>
+            <div style={{ fontWeight:800, fontSize:18 }}>RCS Business Messaging</div>
+            <div style={{ fontSize:13, color:C.sub }}>Direct Google RBM — no CPaaS middleman</div>
+          </div>
+        </div>
+        <div style={{ marginTop:16, padding:"12px 14px", background:"#4285f415", borderRadius:10, fontSize:13, color:C.sub, lineHeight:1.6 }}>
+          <strong style={{ color:C.text }}>Setup steps:</strong>{"  1. Go to "}
+          <a href="https://business-communications.cloud.google.com" target="_blank" rel="noreferrer" style={{ color:"#4285f4" }}>business-communications.cloud.google.com</a>
+          {"  2. Create an RCS agent  →  3. Download Service Account JSON  →  4. Paste below"}
+        </div>
+      </div>
+      <div style={{ ...card, marginBottom:20 }}>
+        <div style={{ fontWeight:700, marginBottom:16 }}>🤖 Agent Configuration</div>
+        <label style={label}>RCS Agent ID</label>
+        <input style={{ ...inp, marginBottom:14 }} value={agentId} onChange={e=>setAgentId(e.target.value)} placeholder="e.g. your-brand-agent@rbm.goog" />
+        <label style={label}>Service Account JSON</label>
+        <textarea style={ta} value={saJson} onChange={e=>setSaJson(e.target.value)} placeholder={'{\n  "type": "service_account",\n  "client_email": "rbm-sa@project.iam.gserviceaccount.com",\n  ...\n}'} />
+      </div>
+      <div style={{ ...card, marginBottom:20 }}>
+        <div style={{ fontWeight:700, marginBottom:16 }}>🔔 Webhook Settings</div>
+        <label style={label}>Webhook URL (set this in Google Developer Console)</label>
+        <input style={{ ...inp, marginBottom:14, color:C.sub, background:"#ffffff08" }} value={`${window.location.origin}/api/rcs-webhook`} readOnly />
+        <label style={label}>Webhook Verification Token (set as RCS_WEBHOOK_TOKEN in Vercel env)</label>
+        <input style={inp} value={webhookToken} onChange={e=>setWebhookToken(e.target.value)} placeholder="A secret string you choose, e.g. rcs_thynk_2025" />
+      </div>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+        <button style={btn("primary")} onClick={handleTest} disabled={status==="testing"}>{status==="testing"?"Testing…":"🔌 Test Connection"}</button>
+        <button style={btn()} onClick={handleSave} disabled={saving}>{saving?"Saving…":"💾 Save Credentials"}</button>
+      </div>
+      {msg && (
+        <div style={{ marginTop:14, padding:"12px 16px", borderRadius:10, fontSize:13,
+          background: status==="ok"?"#06d6a020":status==="error"?"#f8717120":"#4db8ff20",
+          border:`1px solid ${status==="ok"?"#06d6a040":status==="error"?"#f8717140":"#4db8ff40"}`,
+          color: status==="ok"?"#06d6a0":status==="error"?"#f87171":C.sub }}>{msg}</div>
+      )}
+      <div style={{ ...card, marginTop:20, background:"#facc1510", border:"1px solid #facc1530" }}>
+        <div style={{ fontWeight:700, marginBottom:8, color:"#facc15" }}>⚠️ Production Setup</div>
+        <div style={{ fontSize:13, color:C.sub, lineHeight:1.7 }}>
+          Add these to Vercel → Settings → Environment Variables:<br />
+          <code style={{ color:"#facc15" }}>RCS_AGENT_ID</code> — your agent ID<br />
+          <code style={{ color:"#facc15" }}>RCS_SERVICE_ACCOUNT_JSON</code> — service account JSON (stringified)<br />
+          <code style={{ color:"#facc15" }}>RCS_WEBHOOK_TOKEN</code> — webhook verification token
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RCSTemplates() {
+  const [templates, setTemplates] = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [showForm,  setShowForm]  = useState(false);
+  const [form,      setForm]      = useState({ name:"", type:"TEXT", language:"en", body_text:"", card_title:"", card_description:"", card_image_url:"", status:"DRAFT" });
+  const [saving,    setSaving]    = useState(false);
+  const [msg,       setMsg]       = useState(null);
+  const load = async () => {
+    setLoading(true);
+    try { const r = await fetch("/api/rcs-templates"); const d = await r.json(); setTemplates(d.templates||[]); }
+    catch (e) { setMsg({ type:"error", text:e.message }); }
+    setLoading(false);
+  };
+  useEffect(()=>{ load(); },[]);
+  const handleSave = async () => {
+    if (!form.name||!form.type) { setMsg({ type:"error", text:"Name and type are required." }); return; }
+    setSaving(true);
+    try {
+      const r = await fetch("/api/rcs-templates", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(form) });
+      const d = await r.json();
+      if (d.success) { setMsg({ type:"ok", text:"✅ Template saved!" }); setShowForm(false); setForm({ name:"", type:"TEXT", language:"en", body_text:"", card_title:"", card_description:"", card_image_url:"", status:"DRAFT" }); load(); }
+      else { setMsg({ type:"error", text:d.error }); }
+    } catch(e) { setMsg({ type:"error", text:e.message }); }
+    setSaving(false);
+  };
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this template?")) return;
+    await fetch(`/api/rcs-templates?id=${id}`, { method:"DELETE" });
+    load();
+  };
+  const statusColor = { APPROVED:C.green, PENDING_APPROVAL:C.yellow, DRAFT:C.sub, REJECTED:C.red };
+  const label = { fontSize:13, fontWeight:600, color:C.sub, marginBottom:6, display:"block" };
+  return (
+    <div style={{ maxWidth:900 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div><div style={{ fontWeight:800, fontSize:18 }}>RCS Templates</div><div style={{ fontSize:13, color:C.sub }}>Google-approved message templates for RCS campaigns</div></div>
+        <button style={btn("primary")} onClick={()=>setShowForm(!showForm)}>{showForm?"✕ Cancel":"+ New Template"}</button>
+      </div>
+      {msg && <div style={{ marginBottom:16, padding:"10px 14px", borderRadius:10, fontSize:13, background:msg.type==="ok"?"#06d6a020":"#f8717120", color:msg.type==="ok"?"#06d6a0":"#f87171", border:`1px solid ${msg.type==="ok"?"#06d6a040":"#f8717140"}` }}>{msg.text}</div>}
+      {showForm && (
+        <div style={{ ...card, marginBottom:20 }}>
+          <div style={{ fontWeight:700, marginBottom:16 }}>New RCS Template</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:14 }}>
+            <div><label style={label}>Template Name</label><input style={inp} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. school_admission_2025" /></div>
+            <div><label style={label}>Type</label><select style={inp} value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}><option value="TEXT">Text</option><option value="RICH_CARD">Rich Card</option><option value="CAROUSEL">Carousel</option></select></div>
+            <div><label style={label}>Language</label><select style={inp} value={form.language} onChange={e=>setForm(f=>({...f,language:e.target.value}))}><option value="en">English</option><option value="hi">Hindi</option><option value="mr">Marathi</option></select></div>
+          </div>
+          {form.type==="TEXT" && <div style={{ marginBottom:14 }}><label style={label}>Message Body</label><textarea style={{ ...inp, minHeight:90, resize:"vertical" }} value={form.body_text} onChange={e=>setForm(f=>({...f,body_text:e.target.value}))} placeholder="Hi {{name}}, admissions are now open at {{school}}!" /><div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Use {"{{name}}"}, {"{{school}}"} as variables</div></div>}
+          {form.type==="RICH_CARD" && (
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+              <div><label style={label}>Card Title</label><input style={inp} value={form.card_title} onChange={e=>setForm(f=>({...f,card_title:e.target.value}))} placeholder="Admissions Open 2025" /></div>
+              <div><label style={label}>Image URL (optional)</label><input style={inp} value={form.card_image_url} onChange={e=>setForm(f=>({...f,card_image_url:e.target.value}))} placeholder="https://..." /></div>
+              <div style={{ gridColumn:"1/-1" }}><label style={label}>Card Description</label><textarea style={{ ...inp, minHeight:70, resize:"vertical" }} value={form.card_description} onChange={e=>setForm(f=>({...f,card_description:e.target.value}))} placeholder="Describe the card content…" /></div>
+            </div>
+          )}
+          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+            <button style={btn("primary")} onClick={handleSave} disabled={saving}>{saving?"Saving…":"💾 Save Template"}</button>
+            <select style={{ ...inp, width:"auto" }} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="DRAFT">Draft</option><option value="PENDING_APPROVAL">Pending Approval</option><option value="APPROVED">Approved</option></select>
+          </div>
+        </div>
+      )}
+      {loading ? <div style={{ textAlign:"center", padding:40, color:C.sub }}>Loading templates…</div>
+      : templates.length===0 ? <div style={{ ...card, textAlign:"center", padding:40, color:C.sub }}>No RCS templates yet. Create your first template above.</div>
+      : <div style={{ display:"grid", gap:12 }}>{templates.map(t=>(
+          <div key={t.id} style={{ ...card, display:"flex", alignItems:"center", gap:16 }}>
+            <div style={{ width:42, height:42, borderRadius:12, background:"linear-gradient(135deg,#4285f4,#34a853)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{t.type==="TEXT"?"💬":t.type==="RICH_CARD"?"🃏":"🎠"}</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:700 }}>{t.name}</div>
+              <div style={{ fontSize:12, color:C.sub }}>{t.type} · {t.language} · {fmtIST(t.created_at,{dateOnly:true})}</div>
+              {t.definition?.body_text && <div style={{ fontSize:12, color:C.sub, marginTop:2 }}>{t.definition.body_text.slice(0,80)}…</div>}
+            </div>
+            <span style={pill(statusColor[t.status]||C.sub,(statusColor[t.status]||C.sub)+"20")}>{t.status}</span>
+            <button style={{ ...btn("ghost"), fontSize:18, padding:"4px 8px" }} onClick={()=>handleDelete(t.id)}>🗑️</button>
+          </div>
+        ))}</div>}
+    </div>
+  );
+}
+
+function RCSCampaign() {
+  const [campaigns,  setCampaigns]  = useState([]);
+  const [templates,  setTemplates]  = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [showForm,   setShowForm]   = useState(false);
+  const [contactsRaw,setContactsRaw]= useState("");
+  const [form, setForm] = useState({ campaign_name:"", template_name:"", message_type:"text", text:"", suggestions:"" });
+  const [sending,    setSending]    = useState(false);
+  const [msg,        setMsg]        = useState(null);
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [cr,tr] = await Promise.all([fetch("/api/rcs-campaigns"),fetch("/api/rcs-templates")]);
+      const [cd,td] = await Promise.all([cr.json(),tr.json()]);
+      setCampaigns(cd.campaigns||[]);
+      setTemplates((td.templates||[]).filter(t=>t.status==="APPROVED"));
+    } catch(e) { setMsg({ type:"error", text:e.message }); }
+    setLoading(false);
+  };
+  useEffect(()=>{ load(); },[]);
+  const parseContacts = (raw) => raw.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{ const p=l.split(","); return { phone:p[0]?.trim(), name:p[1]?.trim()||"" }; }).filter(c=>c.phone);
+  const handleLaunch = async () => {
+    const contacts = parseContacts(contactsRaw);
+    if (!form.campaign_name) { setMsg({ type:"error", text:"Campaign name required." }); return; }
+    if (contacts.length===0) { setMsg({ type:"error", text:"Add at least one contact number." }); return; }
+    if (!form.text&&!form.template_name) { setMsg({ type:"error", text:"Add a message or select a template." }); return; }
+    setSending(true); setMsg({ type:"info", text:`Launching campaign to ${contacts.length} contacts…` });
+    try {
+      const r = await fetch("/api/rcs-campaigns", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...form, contacts, suggestions: form.suggestions ? form.suggestions.split("\n").filter(Boolean).map(s=>({ type:"reply", text:s.trim(), postbackData:s.trim() })) : [] }) });
+      const d = await r.json();
+      if (d.success) { setMsg({ type:"ok", text:`✅ Campaign "${form.campaign_name}" started! Sending to ${contacts.length} contacts.` }); setShowForm(false); load(); }
+      else { setMsg({ type:"error", text:d.error }); }
+    } catch(e) { setMsg({ type:"error", text:e.message }); }
+    setSending(false);
+  };
+  const statusColor = { completed:C.green, running:"#4db8ff", failed:C.red, pending:C.yellow };
+  const label = { fontSize:13, fontWeight:600, color:C.sub, marginBottom:6, display:"block" };
+  return (
+    <div style={{ maxWidth:960 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div><div style={{ fontWeight:800, fontSize:18 }}>RCS Campaigns</div><div style={{ fontSize:13, color:C.sub }}>Bulk RCS message blasts via Google RBM</div></div>
+        <button style={btn("primary")} onClick={()=>setShowForm(!showForm)}>{showForm?"✕ Cancel":"🚀 New Campaign"}</button>
+      </div>
+      {msg && <div style={{ marginBottom:16, padding:"10px 14px", borderRadius:10, fontSize:13, background:msg.type==="ok"?"#06d6a020":msg.type==="error"?"#f8717120":"#4db8ff20", color:msg.type==="ok"?"#06d6a0":msg.type==="error"?"#f87171":"#4db8ff", border:`1px solid ${msg.type==="ok"?"#06d6a040":msg.type==="error"?"#f8717140":"#4db8ff40"}` }}>{msg.text}</div>}
+      {showForm && (
+        <div style={{ ...card, marginBottom:20 }}>
+          <div style={{ fontWeight:700, marginBottom:16 }}>🚀 New RCS Campaign</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+            <div><label style={label}>Campaign Name</label><input style={inp} value={form.campaign_name} onChange={e=>setForm(f=>({...f,campaign_name:e.target.value}))} placeholder="e.g. Admission Drive June 2025" /></div>
+            <div><label style={label}>Message Type</label><select style={inp} value={form.message_type} onChange={e=>setForm(f=>({...f,message_type:e.target.value}))}><option value="text">Text Message</option><option value="rich_card">Rich Card</option></select></div>
+          </div>
+          {templates.length>0 && <div style={{ marginBottom:14 }}><label style={label}>Approved Template (optional)</label><select style={inp} value={form.template_name} onChange={e=>setForm(f=>({...f,template_name:e.target.value}))}><option value="">— Write custom message below —</option>{templates.map(t=><option key={t.id} value={t.name}>{t.name} ({t.type})</option>)}</select></div>}
+          <div style={{ marginBottom:14 }}><label style={label}>Message Text (supports {"{{name}}"}, {"{{school}}"})</label><textarea style={{ ...inp, minHeight:90, resize:"vertical" }} value={form.text} onChange={e=>setForm(f=>({...f,text:e.target.value}))} placeholder={"Hi {{name}}, admissions are now open! Visit thynksuccess.com"} /></div>
+          <div style={{ marginBottom:14 }}><label style={label}>Quick Reply Suggestions (one per line, optional)</label><textarea style={{ ...inp, minHeight:60, resize:"vertical" }} value={form.suggestions} onChange={e=>setForm(f=>({...f,suggestions:e.target.value}))} placeholder={"Register Now\nLearn More\nCall Us"} /></div>
+          <div style={{ marginBottom:14 }}><label style={label}>Contacts (one per line — phone,name)</label><textarea style={{ ...inp, minHeight:110, resize:"vertical", fontFamily:"monospace", fontSize:12 }} value={contactsRaw} onChange={e=>setContactsRaw(e.target.value)} placeholder={"9876543210,Rahul Sharma\n9123456789,Priya Patel"} /><div style={{ fontSize:11, color:C.sub, marginTop:4 }}>{parseContacts(contactsRaw).length} contact(s) detected</div></div>
+          <button style={btn("primary")} onClick={handleLaunch} disabled={sending}>{sending?"Launching…":`🚀 Launch Campaign (${parseContacts(contactsRaw).length} contacts)`}</button>
+        </div>
+      )}
+      {loading ? <div style={{ textAlign:"center", padding:40, color:C.sub }}>Loading campaigns…</div>
+      : campaigns.length===0 ? <div style={{ ...card, textAlign:"center", padding:40, color:C.sub }}>No RCS campaigns yet.</div>
+      : <div style={{ display:"grid", gap:12 }}>{campaigns.map(c=>(
+          <div key={c.id} style={{ ...card, display:"flex", alignItems:"center", gap:16 }}>
+            <div style={{ width:42, height:42, borderRadius:12, background:"linear-gradient(135deg,#4285f4,#34a853)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>📡</div>
+            <div style={{ flex:1 }}><div style={{ fontWeight:700 }}>{c.name}</div><div style={{ fontSize:12, color:C.sub }}>{fmtIST(c.created_at)} · {c.template_name||"custom message"}</div></div>
+            <div style={{ textAlign:"center", minWidth:60 }}><div style={{ fontWeight:800, fontSize:18, color:C.green }}>{c.sent||0}</div><div style={{ fontSize:11, color:C.sub }}>Sent</div></div>
+            <div style={{ textAlign:"center", minWidth:60 }}><div style={{ fontWeight:800, fontSize:18, color:C.red }}>{c.failed||0}</div><div style={{ fontSize:11, color:C.sub }}>Failed</div></div>
+            <div style={{ textAlign:"center", minWidth:60 }}><div style={{ fontWeight:800, fontSize:18 }}>{c.total||0}</div><div style={{ fontSize:11, color:C.sub }}>Total</div></div>
+            <span style={pill(statusColor[c.status]||C.sub,(statusColor[c.status]||C.sub)+"20")}>{c.status}</span>
+          </div>
+        ))}</div>}
+    </div>
+  );
+}
+
+function RCSInbox() {
+  const [messages, setMessages] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [filter,   setFilter]   = useState("all");
+  const [reply,    setReply]    = useState({ phone:"", text:"" });
+  const [sending,  setSending]  = useState(false);
+  const [msg,      setMsg]      = useState(null);
+  const load = async () => {
+    setLoading(true);
+    try { const r = await fetch("/api/rcs-inbox"); const d = await r.json(); setMessages(d.messages||[]); }
+    catch(e) { setMsg({ type:"error", text:"Could not load messages: "+e.message }); }
+    setLoading(false);
+  };
+  useEffect(()=>{ load(); const t=setInterval(load,15000); return ()=>clearInterval(t); },[]);
+  const handleSendReply = async () => {
+    if (!reply.phone||!reply.text) return;
+    setSending(true);
+    try {
+      const r = await fetch("/api/rcs-send", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ to:reply.phone, message_type:"text", text:reply.text }) });
+      const d = await r.json();
+      if (d.success) { setMsg({ type:"ok", text:"✅ Reply sent!" }); setReply(rv=>({...rv,text:""})); load(); }
+      else { setMsg({ type:"error", text:d.error }); }
+    } catch(e) { setMsg({ type:"error", text:e.message }); }
+    setSending(false);
+  };
+  const dirColor = { inbound:"#4db8ff", outbound:C.green };
+  const filtered = filter==="all" ? messages : messages.filter(m=>m.direction===filter);
+  return (
+    <div style={{ maxWidth:960 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div><div style={{ fontWeight:800, fontSize:18 }}>RCS Inbox</div><div style={{ fontSize:13, color:C.sub }}>Inbound replies + outbound log · auto-refreshes every 15s</div></div>
+        <div style={{ display:"flex", gap:8 }}>
+          {["all","inbound","outbound"].map(f=><button key={f} style={{ ...btn(filter===f?"primary":"ghost"), padding:"7px 14px", fontSize:12 }} onClick={()=>setFilter(f)}>{f.charAt(0).toUpperCase()+f.slice(1)}</button>)}
+          <button style={{ ...btn(), padding:"7px 14px", fontSize:12 }} onClick={load}>🔄 Refresh</button>
+        </div>
+      </div>
+      {msg && <div style={{ marginBottom:16, padding:"10px 14px", borderRadius:10, fontSize:13, background:msg.type==="ok"?"#06d6a020":"#f8717120", color:msg.type==="ok"?"#06d6a0":"#f87171", border:`1px solid ${msg.type==="ok"?"#06d6a040":"#f8717140"}` }}>{msg.text}</div>}
+      <div style={{ ...card, marginBottom:20 }}>
+        <div style={{ fontWeight:700, marginBottom:12 }}>✏️ Send Reply / Single RCS</div>
+        <div style={{ display:"flex", gap:10 }}>
+          <input style={{ ...inp, flex:"0 0 200px" }} value={reply.phone} onChange={e=>setReply(r=>({...r,phone:e.target.value}))} placeholder="+919876543210" />
+          <input style={{ ...inp, flex:1 }} value={reply.text} onChange={e=>setReply(r=>({...r,text:e.target.value}))} placeholder="Type your RCS message…" onKeyDown={e=>e.key==="Enter"&&handleSendReply()} />
+          <button style={btn("primary")} onClick={handleSendReply} disabled={sending||!reply.phone||!reply.text}>{sending?"Sending…":"Send ➤"}</button>
+        </div>
+      </div>
+      {loading ? <div style={{ textAlign:"center", padding:40, color:C.sub }}>Loading messages…</div>
+      : filtered.length===0 ? <div style={{ ...card, textAlign:"center", padding:40, color:C.sub }}>No {filter!=="all"?filter:""} RCS messages yet.</div>
+      : <div style={{ display:"grid", gap:10 }}>{filtered.map((m,i)=>(
+          <div key={m.id||i} style={{ ...card, display:"flex", alignItems:"flex-start", gap:14, padding:"14px 18px" }}>
+            <div style={{ width:36, height:36, borderRadius:"50%", background:`linear-gradient(135deg,${dirColor[m.direction]||C.sub},${dirColor[m.direction]||C.sub}80)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{m.direction==="inbound"?"👤":"📤"}</div>
+            <div style={{ flex:1 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}><span style={{ fontWeight:700, fontSize:14 }}>{m.to_number}</span><span style={{ fontSize:11, color:C.sub }}>{fmtIST(m.created_at)}</span></div>
+              <div style={{ fontSize:13, color:C.text, lineHeight:1.5 }}>{m.body}</div>
+              {m.template_name && <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>Template: {m.template_name}</div>}
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, alignItems:"flex-end" }}>
+              <span style={pill(dirColor[m.direction]||C.sub,(dirColor[m.direction]||C.sub)+"20")}>{m.direction}</span>
+              <span style={pill(["sent","delivered","read"].includes(m.status)?C.green:m.status==="failed"?C.red:C.yellow,(["sent","delivered","read"].includes(m.status)?C.green:m.status==="failed"?C.red:C.yellow)+"20")}>{m.status}</span>
+              {m.direction==="inbound" && <button style={{ ...btn("ghost"), fontSize:11, padding:"3px 8px" }} onClick={()=>setReply({ phone:m.to_number, text:"" })}>↩ Reply</button>}
+            </div>
+          </div>
+        ))}</div>}
+    </div>
+  );
+}
+
+// ─── END RCS MODULE ───────────────────────────────────────────────────────────
+
 function PageContent({ page }) {
   const map = {
     "dashboard":        <Dashboard />,
@@ -5906,6 +6216,10 @@ function PageContent({ page }) {
     "users-list":       <UsersList />,
     "wa-group":         <Contacts />,
     "debug-panel":      <DebugPanel />,
+    "rcs-account":      <RCSAccount />,
+    "rcs-templates":    <RCSTemplates />,
+    "rcs-campaign":     <RCSCampaign />,
+    "rcs-inbox":        <RCSInbox />,
   };
   return map[page] || <Dashboard />;
 }
