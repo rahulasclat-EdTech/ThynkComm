@@ -2174,7 +2174,7 @@ function MessageTemplate() {
       };
 
       const res  = await fetch(
-        "/api/submit-template",
+        "/api/templates",
         {
           method:  "POST",
           headers: { "Content-Type":"application/json", ...getWAHeaders() },
@@ -5903,7 +5903,7 @@ function RCSAccount() {
     if (!agentId || !saJson) { setStatus("error"); setMsg("Fill in Agent ID and Service Account JSON first."); return; }
     setStatus("testing"); setMsg("Contacting Google RBM API…");
     try {
-      const r = await fetch("/api/rcs-config", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ agent_id: agentId, service_account_json: saJson }) });
+      const r = await fetch("/api/rcs?action=config", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ agent_id: agentId, service_account_json: saJson }) });
       const d = await r.json();
       if (d.valid) { setStatus("ok"); setMsg(`✅ Connected — Agent: ${d.agent_name}`); }
       else         { setStatus("error"); setMsg(d.error || "Connection failed"); }
@@ -5944,7 +5944,7 @@ function RCSAccount() {
       <div style={{ ...card, marginBottom:20 }}>
         <div style={{ fontWeight:700, marginBottom:16 }}>🔔 Webhook Settings</div>
         <label style={label}>Webhook URL (set this in Google Developer Console)</label>
-        <input style={{ ...inp, marginBottom:14, color:C.sub, background:"#ffffff08" }} value={`${window.location.origin}/api/rcs-webhook`} readOnly />
+        <input style={{ ...inp, marginBottom:14, color:C.sub, background:"#ffffff08" }} value={`${window.location.origin}/api/rcs?action=webhook`} readOnly />
         <label style={label}>Webhook Verification Token (set as RCS_WEBHOOK_TOKEN in Vercel env)</label>
         <input style={inp} value={webhookToken} onChange={e=>setWebhookToken(e.target.value)} placeholder="A secret string you choose, e.g. rcs_thynk_2025" />
       </div>
@@ -5980,7 +5980,7 @@ function RCSTemplates() {
   const [msg,       setMsg]       = useState(null);
   const load = async () => {
     setLoading(true);
-    try { const r = await fetch("/api/rcs-templates"); const d = await r.json(); setTemplates(d.templates||[]); }
+    try { const r = await fetch("/api/rcs?action=templates"); const d = await r.json(); setTemplates(d.templates||[]); }
     catch (e) { setMsg({ type:"error", text:e.message }); }
     setLoading(false);
   };
@@ -5989,7 +5989,7 @@ function RCSTemplates() {
     if (!form.name||!form.type) { setMsg({ type:"error", text:"Name and type are required." }); return; }
     setSaving(true);
     try {
-      const r = await fetch("/api/rcs-templates", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(form) });
+      const r = await fetch("/api/rcs?action=templates", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(form) });
       const d = await r.json();
       if (d.success) { setMsg({ type:"ok", text:"✅ Template saved!" }); setShowForm(false); setForm({ name:"", type:"TEXT", language:"en", body_text:"", card_title:"", card_description:"", card_image_url:"", status:"DRAFT" }); load(); }
       else { setMsg({ type:"error", text:d.error }); }
@@ -5998,7 +5998,7 @@ function RCSTemplates() {
   };
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this template?")) return;
-    await fetch(`/api/rcs-templates?id=${id}`, { method:"DELETE" });
+    await fetch(`/api/rcs?action=templates&id=${id}`, { method:"DELETE" });
     load();
   };
   const statusColor = { APPROVED:C.green, PENDING_APPROVAL:C.yellow, DRAFT:C.sub, REJECTED:C.red };
@@ -6062,7 +6062,7 @@ function RCSCampaign() {
   const load = async () => {
     setLoading(true);
     try {
-      const [cr,tr] = await Promise.all([fetch("/api/rcs-campaigns"),fetch("/api/rcs-templates")]);
+      const [cr,tr] = await Promise.all([fetch("/api/rcs?action=campaigns"),fetch("/api/rcs?action=templates")]);
       const [cd,td] = await Promise.all([cr.json(),tr.json()]);
       setCampaigns(cd.campaigns||[]);
       setTemplates((td.templates||[]).filter(t=>t.status==="APPROVED"));
@@ -6078,7 +6078,7 @@ function RCSCampaign() {
     if (!form.text&&!form.template_name) { setMsg({ type:"error", text:"Add a message or select a template." }); return; }
     setSending(true); setMsg({ type:"info", text:`Launching campaign to ${contacts.length} contacts…` });
     try {
-      const r = await fetch("/api/rcs-campaigns", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...form, contacts, suggestions: form.suggestions ? form.suggestions.split("\n").filter(Boolean).map(s=>({ type:"reply", text:s.trim(), postbackData:s.trim() })) : [] }) });
+      const r = await fetch("/api/rcs?action=campaigns", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...form, contacts, suggestions: form.suggestions ? form.suggestions.split("\n").filter(Boolean).map(s=>({ type:"reply", text:s.trim(), postbackData:s.trim() })) : [] }) });
       const d = await r.json();
       if (d.success) { setMsg({ type:"ok", text:`✅ Campaign "${form.campaign_name}" started! Sending to ${contacts.length} contacts.` }); setShowForm(false); load(); }
       else { setMsg({ type:"error", text:d.error }); }
@@ -6133,7 +6133,7 @@ function RCSInbox() {
   const [msg,      setMsg]      = useState(null);
   const load = async () => {
     setLoading(true);
-    try { const r = await fetch("/api/rcs-inbox"); const d = await r.json(); setMessages(d.messages||[]); }
+    try { const r = await fetch("/api/rcs?action=inbox"); const d = await r.json(); setMessages(d.messages||[]); }
     catch(e) { setMsg({ type:"error", text:"Could not load messages: "+e.message }); }
     setLoading(false);
   };
@@ -6142,7 +6142,7 @@ function RCSInbox() {
     if (!reply.phone||!reply.text) return;
     setSending(true);
     try {
-      const r = await fetch("/api/rcs-send", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ to:reply.phone, message_type:"text", text:reply.text }) });
+      const r = await fetch("/api/rcs?action=send", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ to:reply.phone, message_type:"text", text:reply.text }) });
       const d = await r.json();
       if (d.success) { setMsg({ type:"ok", text:"✅ Reply sent!" }); setReply(rv=>({...rv,text:""})); load(); }
       else { setMsg({ type:"error", text:d.error }); }
